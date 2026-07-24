@@ -153,4 +153,76 @@ BOOST_AUTO_TEST_CASE( OutOfRangeNoSnap )
 }
 
 
+BOOST_AUTO_TEST_CASE( EqualSpacingExtendsChain )
+{
+    ALIGNMENT_GUIDE_ENGINE engine;
+    // A x:[0,20], B x:[50,70] -> gap 30.  All share y:[0,20].
+    engine.SetNeighbors( { BOX2I( VECTOR2I( 0, 0 ), VECTOR2I( 20, 20 ) ),
+                           BOX2I( VECTOR2I( 50, 0 ), VECTOR2I( 20, 20 ) ) } );
+
+    // Moving box (20 wide) near x=104; equal spacing puts left edge at 70+30=100
+    BOX2I moving( VECTOR2I( 104, 0 ), VECTOR2I( 20, 20 ) );
+
+    auto result = engine.FindSnap( moving, 10 );
+
+    BOOST_REQUIRE( result.has_value() );
+    BOOST_CHECK_EQUAL( result->Offset.x, -4 );
+
+    // Two gaps -> two badges, both reporting 30
+    BOOST_REQUIRE_EQUAL( result->Badges.size(), 2 );
+    BOOST_CHECK_EQUAL( result->Badges[0].Gap, 30 );
+    BOOST_CHECK_EQUAL( result->Badges[1].Gap, 30 );
+    BOOST_CHECK( !result->Badges[0].Vertical );
+}
+
+
+BOOST_AUTO_TEST_CASE( EqualSpacingExtendsChainBackwards )
+{
+    ALIGNMENT_GUIDE_ENGINE engine;
+    // Same A x:[0,20] / B x:[50,70] pair, gap 30, all at y:[0,20].
+    engine.SetNeighbors( { BOX2I( VECTOR2I( 0, 0 ), VECTOR2I( 20, 20 ) ),
+                           BOX2I( VECTOR2I( 50, 0 ), VECTOR2I( 20, 20 ) ) } );
+
+    // Moving box (20 wide) at x:[-54,-34]; equal spacing puts its right edge at
+    // 0-30=-30, i.e. x:[-50,-30], so the offset is +4.  Nearest alignment target
+    // is A.left=0 (delta +34), well out of range.
+    BOX2I moving( VECTOR2I( -54, 0 ), VECTOR2I( 20, 20 ) );
+
+    auto result = engine.FindSnap( moving, 10 );
+
+    BOOST_REQUIRE( result.has_value() );
+    BOOST_CHECK_EQUAL( result->Offset.x, 4 );
+
+    // Badges walk left-to-right: moving.right(-30)->A.left(0), then A.right(20)->
+    // B.left(50).  Both 30 wide, both centred on the shared y overlap [0,20].
+    BOOST_REQUIRE_EQUAL( result->Badges.size(), 2 );
+    BOOST_CHECK_EQUAL( result->Badges[0].Gap, 30 );
+    BOOST_CHECK_EQUAL( result->Badges[1].Gap, 30 );
+    BOOST_CHECK( !result->Badges[0].Vertical );
+    BOOST_CHECK_EQUAL( result->Badges[0].Pos.x, -15 );
+    BOOST_CHECK_EQUAL( result->Badges[0].Pos.y, 10 );
+    BOOST_CHECK_EQUAL( result->Badges[1].Pos.x, 35 );
+    BOOST_CHECK_EQUAL( result->Badges[1].Pos.y, 10 );
+}
+
+
+BOOST_AUTO_TEST_CASE( EqualSpacingRequiresCrossOverlap )
+{
+    ALIGNMENT_GUIDE_ENGINE engine;
+    // Same as above but neighbors live at y:[0,20] while moving is at y:[400,420]:
+    // no cross-axis overlap -> no equal-spacing candidate (alignment may still
+    // fire on Y=aligned edges, so keep X far from alignment targets too).
+    engine.SetNeighbors( { BOX2I( VECTOR2I( 0, 0 ), VECTOR2I( 20, 20 ) ),
+                           BOX2I( VECTOR2I( 50, 0 ), VECTOR2I( 20, 20 ) ) } );
+
+    BOX2I moving( VECTOR2I( 104, 400 ), VECTOR2I( 20, 20 ) );
+
+    auto result = engine.FindSnap( moving, 10 );
+
+    // x=104: nearest alignment target is B.right=70 (delta -34, out of range);
+    // equal-spacing target x=100 must NOT fire because of the y separation.
+    BOOST_CHECK( !result.has_value() );
+}
+
+
 BOOST_AUTO_TEST_SUITE_END()

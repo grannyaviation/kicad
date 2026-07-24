@@ -42,7 +42,7 @@ SPAN spanOf( const BOX2I& aBox, int aAxis )
     return { aBox.GetTop(), aBox.GetBottom() };
 }
 
-[[maybe_unused]] bool spansOverlap( const SPAN& aA, const SPAN& aB )
+bool spansOverlap( const SPAN& aA, const SPAN& aB )
 {
     return aA.Min <= aB.Max && aB.Min <= aA.Max;
 }
@@ -60,11 +60,49 @@ void ALIGNMENT_GUIDE_ENGINE::collectAxisCandidates( const BOX2I& aMoving, int aA
     {
         const SPAN ns = spanOf( m_neighbors[i], aAxis );
 
-        aOut.push_back( { ns.Min - ms.Min, KIND_ALIGN, i, i } );
-        aOut.push_back( { ns.Max - ms.Min, KIND_ALIGN, i, i } );
-        aOut.push_back( { ns.Min - ms.Max, KIND_ALIGN, i, i } );
-        aOut.push_back( { ns.Max - ms.Max, KIND_ALIGN, i, i } );
-        aOut.push_back( { ns.Center() - ms.Center(), KIND_ALIGN, i, i } );
+        aOut.push_back( { ns.Min - ms.Min, KIND_ALIGN, i, i, ns.Min } );
+        aOut.push_back( { ns.Max - ms.Min, KIND_ALIGN, i, i, ns.Max } );
+        aOut.push_back( { ns.Min - ms.Max, KIND_ALIGN, i, i, ns.Min } );
+        aOut.push_back( { ns.Max - ms.Max, KIND_ALIGN, i, i, ns.Max } );
+        aOut.push_back( { ns.Center() - ms.Center(), KIND_ALIGN, i, i, ns.Center() } );
+    }
+
+    // Equal-spacing: for each pair of neighbors adjacent along this axis whose
+    // cross-axis spans overlap the moving box, offer positions that extend the
+    // pair's gap on either side.
+    const SPAN crossMs = spanOf( aMoving, 1 - aAxis );
+
+    std::vector<size_t> overlapping;
+
+    for( size_t i = 0; i < m_neighbors.size(); ++i )
+    {
+        if( spansOverlap( spanOf( m_neighbors[i], 1 - aAxis ), crossMs ) )
+            overlapping.push_back( i );
+    }
+
+    std::sort( overlapping.begin(), overlapping.end(),
+               [&]( size_t a, size_t b )
+               {
+                   return spanOf( m_neighbors[a], aAxis ).Min
+                          < spanOf( m_neighbors[b], aAxis ).Min;
+               } );
+
+    for( size_t k = 0; k + 1 < overlapping.size(); ++k )
+    {
+        const size_t i = overlapping[k];
+        const size_t j = overlapping[k + 1];
+        const SPAN   si = spanOf( m_neighbors[i], aAxis );
+        const SPAN   sj = spanOf( m_neighbors[j], aAxis );
+        const int    gap = sj.Min - si.Max;
+
+        if( gap < 0 )
+            continue; // overlapping neighbors: no meaningful gap
+
+        // Moving box after j with the same gap: moving.Min = j.Max + gap
+        aOut.push_back( { ( sj.Max + gap ) - ms.Min, KIND_EQUAL_GAP, i, j, 0 } );
+
+        // Moving box before i with the same gap: moving.Max = i.Min - gap
+        aOut.push_back( { ( si.Min - gap ) - ms.Max, KIND_EQUAL_GAP, j, i, 0 } );
     }
 }
 
@@ -78,20 +116,8 @@ void ALIGNMENT_GUIDE_ENGINE::buildGraphics( const BOX2I& aSnapped, int aAxis,
     if( aWinner.Kind == KIND_ALIGN )
     {
         // Guide line runs along the snapped ordinate, spanning both boxes on the
-        // cross axis.
-        const SPAN ms = spanOf( aSnapped, aAxis );
-        const SPAN ns = spanOf( other, aAxis );
-
-        // Find which ordinate actually aligned (one of ms.Min/ms.Max/center)
-        int ord;
-
-        if( ms.Min == ns.Min || ms.Min == ns.Max )
-            ord = ms.Min;
-        else if( ms.Max == ns.Min || ms.Max == ns.Max )
-            ord = ms.Max;
-        else
-            ord = ms.Center();
-
+        // cross axis.  The ordinate was recorded when the candidate was collected.
+        const int  ord = aWinner.Ord;
         const SPAN crossM = spanOf( aSnapped, 1 - aAxis );
         const SPAN crossN = spanOf( other, 1 - aAxis );
         const int  lo = std::min( crossM.Min, crossN.Min );
@@ -101,6 +127,42 @@ void ALIGNMENT_GUIDE_ENGINE::buildGraphics( const BOX2I& aSnapped, int aAxis,
             aResult.Lines.emplace_back( VECTOR2I( ord, lo ), VECTOR2I( ord, hi ) );
         else
             aResult.Lines.emplace_back( VECTOR2I( lo, ord ), VECTOR2I( hi, ord ) );
+    }
+
+    if( aWinner.Kind == KIND_EQUAL_GAP )
+    {
+        // N1 = far neighbor, N2 = near neighbor (the one adjacent to the moving box)
+        const SPAN sFar = spanOf( m_neighbors[aWinner.N1], aAxis );
+        const SPAN sNear = spanOf( m_neighbors[aWinner.N2], aAxis );
+        const SPAN sMov = spanOf( aSnapped, aAxis );
+
+        const SPAN crossNear = spanOf( m_neighbors[aWinner.N2], 1 - aAxis );
+        const SPAN crossMov = spanOf( aSnapped, 1 - aAxis );
+        const int  crossMid = ( std::max( crossNear.Min, crossMov.Min )
+                                + std::min( crossNear.Max, crossMov.Max ) ) / 2;
+
+        auto makeBadge = [&]( int aFrom, int aTo )
+        {
+            GAP_BADGE badge;
+            badge.Gap = aTo - aFrom;
+            badge.Vertical = ( aAxis == 1 );
+
+            const int mid = aFrom + badge.Gap / 2;
+            badge.Pos = ( aAxis == 0 ) ? VECTOR2I( mid, crossMid )
+                                       : VECTOR2I( crossMid, mid );
+            aResult.Badges.push_back( badge );
+        };
+
+        if( sMov.Min > sNear.Max ) // moving sits after the pair
+        {
+            makeBadge( sFar.Max, sNear.Min );
+            makeBadge( sNear.Max, sMov.Min );
+        }
+        else // moving sits before the pair
+        {
+            makeBadge( sMov.Max, sNear.Min );
+            makeBadge( sNear.Max, sFar.Min );
+        }
     }
 }
 

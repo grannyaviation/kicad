@@ -87,6 +87,7 @@ private:
         int    Kind;   ///< KIND_* — drives which guide graphics get built
         size_t N1;     ///< Index of first involved neighbor (or container)
         size_t N2;     ///< Index of second involved neighbor (equal-gap kinds)
+        int    Ord;    ///< Guide ordinate along the axis (KIND_ALIGN), in post-snap coords
     };
 
     enum
