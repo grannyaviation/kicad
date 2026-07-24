@@ -87,6 +87,14 @@ public:
                              GRID_HELPER_GRIDS aGrid = GRID_HELPER_GRIDS::GRID_CURRENT,
                              const std::vector<BOARD_ITEM*>& aSkip = {} );
 
+    /**
+     * Collect neighbor footprint bboxes and container boxes for smart alignment
+     * guides.  Call once at drag start, after SetMoveContext().
+     *
+     * @param aSkip items being dragged (excluded from neighbors)
+     */
+    void CollectAlignmentNeighbors( const std::vector<BOARD_ITEM*>& aSkip );
+
     GRID_HELPER_GRIDS GetItemGrid( const EDA_ITEM* aItem ) const override;
 
     VECTOR2D GetGridSize( GRID_HELPER_GRIDS aGrid ) const override;

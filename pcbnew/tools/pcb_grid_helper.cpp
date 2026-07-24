@@ -594,6 +594,88 @@ VECTOR2I PCB_GRID_HELPER::BestSnapAnchor( const VECTOR2I& aOrigin, BOARD_ITEM* a
 }
 
 
+void PCB_GRID_HELPER::CollectAlignmentNeighbors( const std::vector<BOARD_ITEM*>& aSkip )
+{
+    ALIGNMENT_GUIDE_ENGINE& engine = getSnapManager().GetAlignmentEngine();
+    engine.Clear();
+
+    if( !m_moveContext )
+        return;
+
+    const BOX2I viewport = BOX2ISafe( m_toolMgr->GetView()->GetViewport() );
+
+    // Which side is being dragged?  Take it from the first dragged footprint.  An unsided
+    // footprint (annotations only) gets no filter rather than a filter that matches nothing.
+    PCB_LAYER_ID dragSide = UNDEFINED_LAYER;
+
+    for( BOARD_ITEM* item : aSkip )
+    {
+        if( item->Type() == PCB_FOOTPRINT_T )
+        {
+            dragSide = static_cast<FOOTPRINT*>( item )->GetSide();
+            break;
+        }
+    }
+
+    struct SCORED
+    {
+        BOX2I  Box;
+        double Dist;
+    };
+
+    std::vector<SCORED> scored;
+    const VECTOR2I      ref = m_moveContext->OriginalBBox.Centre();
+
+    for( BOARD_ITEM* item : queryVisible( viewport, aSkip ) )
+    {
+        if( item->Type() != PCB_FOOTPRINT_T )
+            continue;
+
+        FOOTPRINT* fp = static_cast<FOOTPRINT*>( item );
+
+        if( dragSide != UNDEFINED_LAYER && fp->GetSide() != dragSide )
+            continue;
+
+        // Always valid and non-degenerate: FOOTPRINT::GetBoundingBox() seeds from the
+        // footprint origin and inflates, so this can't produce a phantom box at (0, 0).
+        const BOX2I box = fp->GetBoundingBox( false );
+
+        // Distance in double: the two centres can be far enough apart to overflow int.
+        scored.push_back( { box, ( VECTOR2D( box.Centre() ) - VECTOR2D( ref ) ).EuclideanNorm() } );
+    }
+
+    // Cap the neighbor count: nearest first.  Guides are hints; dropping far
+    // neighbors is fine and keeps the per-motion cost bounded.
+    constexpr size_t MAX_GUIDE_NEIGHBORS = 100;
+
+    if( scored.size() > MAX_GUIDE_NEIGHBORS )
+    {
+        std::partial_sort( scored.begin(), scored.begin() + MAX_GUIDE_NEIGHBORS, scored.end(),
+                           []( const SCORED& a, const SCORED& b ) { return a.Dist < b.Dist; } );
+        scored.resize( MAX_GUIDE_NEIGHBORS );
+    }
+
+    std::vector<BOX2I> boxes;
+    boxes.reserve( scored.size() );
+
+    for( const SCORED& s : scored )
+        boxes.push_back( s.Box );
+
+    engine.SetNeighbors( std::move( boxes ) );
+
+    // Containers: the board outline (v1; enclosing-item bboxes are a follow-up).
+    // A board with no Edge.Cuts yields an uninitialised box, which the engine would
+    // otherwise take at face value as a container at the origin.
+    if( BOARD* board = static_cast<BOARD*>( m_toolMgr->GetModel() ) )
+    {
+        const BOX2I edges = board->GetBoardEdgesBoundingBox();
+
+        if( edges.IsValid() )
+            engine.SetContainers( { edges } );
+    }
+}
+
+
 VECTOR2I PCB_GRID_HELPER::BestSnapAnchor( const VECTOR2I& aOrigin, const LSET& aLayers,
                                           GRID_HELPER_GRIDS               aGrid,
                                           const std::vector<BOARD_ITEM*>& aSkip )
@@ -619,6 +701,14 @@ VECTOR2I PCB_GRID_HELPER::BestSnapAnchor( const VECTOR2I& aOrigin, const LSET& a
                                                VECTOR2D( snapRange, snapRange ) );
 
     clearAnchors();
+
+    // Drop any guides from the previous call up front.  Every exit from this function bar the
+    // alignment-guide one below means no guide is showing, and several of them return early.
+    if( m_alignGuidePreview.HasGuides() )
+    {
+        m_alignGuidePreview.ClearGuides();
+        m_toolMgr->GetView()->Update( &m_alignGuidePreview, KIGFX::GEOMETRY );
+    }
 
     const std::vector<BOARD_ITEM*> visibleItems = queryVisible( visibilityHorizon, aSkip );
     computeAnchors( visibleItems, aOrigin, false, nullptr, &aLayers, false );
@@ -919,8 +1009,6 @@ VECTOR2I PCB_GRID_HELPER::BestSnapAnchor( const VECTOR2I& aOrigin, const LSET& a
 
     // Completely failed to find any snap point, so snap to the grid
 
-    wxLogTrace( traceSnap, "  RETURNING grid snap: (%d, %d)", nearestGrid.x, nearestGrid.y );
-
     m_snapItem = std::nullopt;
 
     if( !snapValid )
@@ -929,6 +1017,35 @@ VECTOR2I PCB_GRID_HELPER::BestSnapAnchor( const VECTOR2I& aOrigin, const LSET& a
     snapLineManager.SetSnapLineEnd( std::nullopt );
 
     m_toolMgr->GetView()->SetVisible( &m_viewSnapPoint, false );
+
+    // Smart alignment guides: only during an active move (context set by the move tool) and
+    // only when snapping is enabled at all (Shift suppresses).  This sits below every item
+    // snap above and above the grid fallback, so priority is anchor > guide > grid.  It runs
+    // after the teardown above so a guide snap doesn't leave a stale snap marker or snap line.
+    if( m_moveContext && m_enableSnap )
+    {
+        ALIGNMENT_GUIDE_ENGINE& engine = getSnapManager().GetAlignmentEngine();
+
+        if( engine.HasInputs() )
+        {
+            // Moving bbox at the current (unsnapped) cursor position
+            BOX2I movingBox = m_moveContext->OriginalBBox;
+            movingBox.Move( aOrigin - m_moveContext->OriginalCursor );
+
+            if( auto guide = engine.FindSnap( movingBox, snapRange ) )
+            {
+                wxLogTrace( traceSnap, "  RETURNING alignment guide snap: (%d, %d)",
+                            aOrigin.x + guide->Offset.x, aOrigin.y + guide->Offset.y );
+
+                m_alignGuidePreview.SetGuides( *guide );
+                m_toolMgr->GetView()->Update( &m_alignGuidePreview, KIGFX::GEOMETRY );
+
+                return aOrigin + guide->Offset;
+            }
+        }
+    }
+
+    wxLogTrace( traceSnap, "  RETURNING grid snap: (%d, %d)", nearestGrid.x, nearestGrid.y );
 
     return nearestGrid;
 }
