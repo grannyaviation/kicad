@@ -76,6 +76,23 @@ public:
     std::optional<RESULT> FindSnap( const BOX2I& aMoving, int aSnapRange ) const;
 
 private:
+    /// A maximal run of neighbors that overlap or touch along one axis, merged into a
+    /// single interval.
+    ///
+    /// Sort order is not spatial order: sorting boxes by their low edge and pairing
+    /// consecutive entries invents gaps that run straight through a third box (a test
+    /// point nested in a courtyard, silkscreen under an IC).  Merging first means the
+    /// space between two clusters is genuinely empty, and — because touching boxes
+    /// merge too — that consecutive clusters are always separated by a strictly
+    /// positive gap.
+    struct CLUSTER
+    {
+        int Min;      ///< Merged extent along the axis
+        int Max;
+        int CrossMin; ///< Merged extent across the axis; positions badges, nothing else
+        int CrossMax;
+    };
+
     /// One potential snap position along one axis
     ///
     /// NOTE: named SNAP_CANDIDATE, not CANDIDATE — include/eda_item_flags.h:46
@@ -85,11 +102,22 @@ private:
     {
         int    Delta;  ///< Offset along the axis to reach this candidate
         int    Kind;   ///< KIND_* — drives which guide graphics get built
-        size_t N1;     ///< Index of first involved neighbor (or container)
-        size_t N2;     ///< Index of second involved neighbor (equal-gap kinds)
+        size_t N1;     ///< See below — meaning depends on Kind
+        size_t N2;
         int    Ord;    ///< Guide ordinate along the axis (KIND_ALIGN), in post-snap coords
     };
 
+    // What N1/N2 index, per kind.  There is no single convention; each generator
+    // documents its own and buildGraphics must match it:
+    //
+    //   KIND_ALIGN      both are the same index into m_neighbors
+    //   KIND_CONTAINER  both are the same index into m_containers
+    //   KIND_EQUAL_GAP  indices into the axis' CLUSTER list.  N1 = far cluster,
+    //                   N2 = near cluster (the one the moving box ends up next to).
+    //                   The generator emits both directions from one pair and swaps
+    //                   the two indices between them, so N1/N2 is not left/right.
+    //   KIND_BETWEEN    indices into the axis' CLUSTER list.  N1 = left, N2 = right,
+    //                   never swapped.
     enum
     {
         KIND_ALIGN,     ///< Edge/center aligned with a neighbor edge/center
@@ -98,11 +126,15 @@ private:
         KIND_CONTAINER, ///< Centered inside a container box
     };
 
+    /// Neighbors that cross-overlap aMoving, merged along aAxis, ordered ascending.
+    std::vector<CLUSTER> buildClusters( const BOX2I& aMoving, int aAxis ) const;
+
     void collectAxisCandidates( const BOX2I& aMoving, int aAxis,
+                                const std::vector<CLUSTER>& aClusters,
                                 std::vector<SNAP_CANDIDATE>& aOut ) const;
 
     void buildGraphics( const BOX2I& aSnapped, int aAxis, const SNAP_CANDIDATE& aWinner,
-                        RESULT& aResult ) const;
+                        const std::vector<CLUSTER>& aClusters, RESULT& aResult ) const;
 
     std::vector<BOX2I> m_neighbors;
     std::vector<BOX2I> m_containers;

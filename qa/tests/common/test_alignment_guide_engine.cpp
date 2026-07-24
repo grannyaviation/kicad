@@ -354,4 +354,155 @@ BOOST_AUTO_TEST_CASE( ContainerLosesToNearerAlignment )
 }
 
 
+BOOST_AUTO_TEST_CASE( NestedNeighborsPairByCluster )
+{
+    ALIGNMENT_GUIDE_ENGINE engine;
+    // B is nested inside A along X.  Pairing sorted neighbors consecutively would
+    // pair B with C and report a 180-wide gap (20 -> 200) that runs straight through
+    // A's body.  The real clear space is A/B's merged right edge 100 -> C's left
+    // edge 200, i.e. 100.  All three share y:[0,20].
+    engine.SetNeighbors( { BOX2I( VECTOR2I( 0, 0 ), VECTOR2I( 100, 20 ) ),
+                           BOX2I( VECTOR2I( 10, 0 ), VECTOR2I( 10, 20 ) ),
+                           BOX2I( VECTOR2I( 200, 0 ), VECTOR2I( 10, 20 ) ) } );
+
+    // The phantom B->C gap of 180 would offer 210 + 180 = 390.  It must not exist.
+    // Y still snaps (delta 0), so the result is present but must not move X.
+    BOX2I phantom( VECTOR2I( 394, 0 ), VECTOR2I( 20, 20 ) );
+
+    auto phantomResult = engine.FindSnap( phantom, 10 );
+
+    BOOST_REQUIRE( phantomResult.has_value() );
+    BOOST_CHECK_EQUAL( phantomResult->Offset.x, 0 );
+    BOOST_CHECK( phantomResult->Badges.empty() );
+
+    // Extending the genuine gap puts the moving box at 210 + 100 = 310.  Nothing else
+    // is within 10: the nearest alignment target is C.right = 210 (delta -104).
+    BOX2I moving( VECTOR2I( 314, 0 ), VECTOR2I( 20, 20 ) );
+
+    auto result = engine.FindSnap( moving, 10 );
+
+    BOOST_REQUIRE( result.has_value() );
+    BOOST_CHECK_EQUAL( result->Offset.x, -4 );
+    BOOST_CHECK_EQUAL( result->Offset.y, 0 ); // y:[0,20] already aligns with A/B/C
+
+    // Badges measure the cluster gap 100 -> 200 and the new gap 210 -> 310, both 100.
+    // Cross overlap of the near cluster (y:[0,20]) with the snapped box (y:[0,20])
+    // is [0,20], so both badges sit at y = 10.
+    BOOST_REQUIRE_EQUAL( result->Badges.size(), 2 );
+    BOOST_CHECK_EQUAL( result->Badges[0].Gap, 100 );
+    BOOST_CHECK_EQUAL( result->Badges[1].Gap, 100 );
+    BOOST_CHECK_EQUAL( result->Badges[0].Pos.x, 150 );
+    BOOST_CHECK_EQUAL( result->Badges[0].Pos.y, 10 );
+    BOOST_CHECK_EQUAL( result->Badges[1].Pos.x, 260 );
+    BOOST_CHECK_EQUAL( result->Badges[1].Pos.y, 10 );
+}
+
+
+BOOST_AUTO_TEST_CASE( PartialOverlapAnchorsOnClusterEdge )
+{
+    ALIGNMENT_GUIDE_ENGINE engine;
+    // A x:[0,50] and B x:[40,100] partially overlap and merge into one cluster
+    // x:[0,100]; C x:[200,210] stands alone.  Gap between clusters = 100.
+    engine.SetNeighbors( { BOX2I( VECTOR2I( 0, 0 ), VECTOR2I( 50, 20 ) ),
+                           BOX2I( VECTOR2I( 40, 0 ), VECTOR2I( 60, 20 ) ),
+                           BOX2I( VECTOR2I( 200, 0 ), VECTOR2I( 10, 20 ) ) } );
+
+    // Pushing the gap out on the "before" side must anchor on the cluster's left edge
+    // 0, giving moving.right = 0 - 100 = -100, i.e. x:[-120,-100].  Anchoring on B
+    // (which owns neither cluster edge) would give -60 instead, 40 units off.
+    BOX2I moving( VECTOR2I( -116, 0 ), VECTOR2I( 20, 20 ) );
+
+    auto result = engine.FindSnap( moving, 10 );
+
+    BOOST_REQUIRE( result.has_value() );
+    BOOST_CHECK_EQUAL( result->Offset.x, -4 );
+    BOOST_CHECK_EQUAL( result->Offset.y, 0 );
+
+    // Badges walk left to right: moving.right(-100) -> cluster.left(0), then
+    // cluster.right(100) -> C.left(200).  Both report 100 units of genuinely empty
+    // space; a badge drawn from B's edges would claim 140 and cover A.
+    BOOST_REQUIRE_EQUAL( result->Badges.size(), 2 );
+    BOOST_CHECK_EQUAL( result->Badges[0].Gap, 100 );
+    BOOST_CHECK_EQUAL( result->Badges[1].Gap, 100 );
+    BOOST_CHECK_EQUAL( result->Badges[0].Pos.x, -50 );
+    BOOST_CHECK_EQUAL( result->Badges[0].Pos.y, 10 );
+    BOOST_CHECK_EQUAL( result->Badges[1].Pos.x, 150 );
+    BOOST_CHECK_EQUAL( result->Badges[1].Pos.y, 10 );
+}
+
+
+BOOST_AUTO_TEST_CASE( EqualSpacingVerticalBadges )
+{
+    ALIGNMENT_GUIDE_ENGINE engine;
+    // A y:[0,20], B y:[50,70] -> gap 30 measured along Y.  Both x:[0,20].
+    engine.SetNeighbors( { BOX2I( VECTOR2I( 0, 0 ), VECTOR2I( 20, 20 ) ),
+                           BOX2I( VECTOR2I( 0, 50 ), VECTOR2I( 20, 20 ) ) } );
+
+    // Moving box (20 tall) at y:[104,124]; equal spacing puts its top at 70+30=100.
+    // X aligns exactly (delta 0) so the snapped box stays at x:[0,20].
+    BOX2I moving( VECTOR2I( 0, 104 ), VECTOR2I( 20, 20 ) );
+
+    auto result = engine.FindSnap( moving, 10 );
+
+    BOOST_REQUIRE( result.has_value() );
+    BOOST_CHECK_EQUAL( result->Offset.x, 0 );
+    BOOST_CHECK_EQUAL( result->Offset.y, -4 );
+
+    // Badges measure A.bottom(20)->B.top(50) and B.bottom(70)->moving.top(100).
+    // Along Y the badge position is (crossMid, mid), i.e. x carries the cross
+    // ordinate 10 and y carries the gap midpoint - the transposed layout of the
+    // horizontal case.
+    BOOST_REQUIRE_EQUAL( result->Badges.size(), 2 );
+    BOOST_CHECK( result->Badges[0].Vertical );
+    BOOST_CHECK( result->Badges[1].Vertical );
+    BOOST_CHECK_EQUAL( result->Badges[0].Gap, 30 );
+    BOOST_CHECK_EQUAL( result->Badges[1].Gap, 30 );
+    BOOST_CHECK_EQUAL( result->Badges[0].Pos.x, 10 );
+    BOOST_CHECK_EQUAL( result->Badges[0].Pos.y, 35 );
+    BOOST_CHECK_EQUAL( result->Badges[1].Pos.x, 10 );
+    BOOST_CHECK_EQUAL( result->Badges[1].Pos.y, 85 );
+}
+
+
+BOOST_AUTO_TEST_CASE( CrossEdgeAlignOrdinates )
+{
+    ALIGNMENT_GUIDE_ENGINE engine;
+    // Neighbor x:[0,100], y:[0,50].  Y is kept far from the moving box throughout so
+    // only X can snap.
+    engine.SetNeighbors( { BOX2I( VECTOR2I( 0, 0 ), VECTOR2I( 100, 50 ) ) } );
+
+    // moving.left near neighbor.right: 100 - 97 = +3 is the only candidate in range
+    // (min-min -97, min-max -137, max-max -37, centre -67).  The guide must land on
+    // the neighbor's *right* edge, x=100 - not on its left edge.
+    BOX2I after( VECTOR2I( 97, 500 ), VECTOR2I( 40, 20 ) );
+
+    auto result = engine.FindSnap( after, 10 );
+
+    BOOST_REQUIRE( result.has_value() );
+    BOOST_CHECK_EQUAL( result->Offset.x, 3 );
+    BOOST_CHECK_EQUAL( result->Offset.y, 0 );
+    BOOST_REQUIRE_EQUAL( result->Lines.size(), 1 );
+    BOOST_CHECK_EQUAL( result->Lines[0].A.x, 100 );
+    BOOST_CHECK_EQUAL( result->Lines[0].A.y, 0 );
+    BOOST_CHECK_EQUAL( result->Lines[0].B.x, 100 );
+    BOOST_CHECK_EQUAL( result->Lines[0].B.y, 520 );
+
+    // The mirror pairing: moving.right near neighbor.left, 0 - (-3) = +3, the only
+    // candidate in range (min-min 43, max-min 143, max-max 103, centre 73).  Guide
+    // lands on the neighbor's left edge, x=0.
+    BOX2I before( VECTOR2I( -43, 500 ), VECTOR2I( 40, 20 ) );
+
+    result = engine.FindSnap( before, 10 );
+
+    BOOST_REQUIRE( result.has_value() );
+    BOOST_CHECK_EQUAL( result->Offset.x, 3 );
+    BOOST_CHECK_EQUAL( result->Offset.y, 0 );
+    BOOST_REQUIRE_EQUAL( result->Lines.size(), 1 );
+    BOOST_CHECK_EQUAL( result->Lines[0].A.x, 0 );
+    BOOST_CHECK_EQUAL( result->Lines[0].A.y, 0 );
+    BOOST_CHECK_EQUAL( result->Lines[0].B.x, 0 );
+    BOOST_CHECK_EQUAL( result->Lines[0].B.y, 520 );
+}
+
+
 BOOST_AUTO_TEST_SUITE_END()

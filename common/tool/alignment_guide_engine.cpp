@@ -63,7 +63,54 @@ void pushBadge( ALIGNMENT_GUIDE_ENGINE::RESULT& aResult, int aAxis, int aCrossMi
 } // namespace
 
 
+std::vector<ALIGNMENT_GUIDE_ENGINE::CLUSTER>
+ALIGNMENT_GUIDE_ENGINE::buildClusters( const BOX2I& aMoving, int aAxis ) const
+{
+    const SPAN           crossMs = spanOf( aMoving, 1 - aAxis );
+    std::vector<CLUSTER> clusters;
+
+    for( const BOX2I& n : m_neighbors )
+    {
+        const SPAN cs = spanOf( n, 1 - aAxis );
+
+        if( !spansOverlap( cs, crossMs ) )
+            continue;
+
+        const SPAN s = spanOf( n, aAxis );
+        clusters.push_back( { s.Min, s.Max, cs.Min, cs.Max } );
+    }
+
+    std::sort( clusters.begin(), clusters.end(),
+               []( const CLUSTER& a, const CLUSTER& b ) { return a.Min < b.Min; } );
+
+    if( clusters.empty() )
+        return clusters;
+
+    // Standard in-place interval merge.  `>` rather than `>=` so boxes that merely
+    // touch still merge, which is what keeps every surviving gap strictly positive.
+    size_t w = 0;
+
+    for( size_t r = 1; r < clusters.size(); ++r )
+    {
+        if( clusters[r].Min > clusters[w].Max )
+        {
+            clusters[++w] = clusters[r];
+        }
+        else
+        {
+            clusters[w].Max = std::max( clusters[w].Max, clusters[r].Max );
+            clusters[w].CrossMin = std::min( clusters[w].CrossMin, clusters[r].CrossMin );
+            clusters[w].CrossMax = std::max( clusters[w].CrossMax, clusters[r].CrossMax );
+        }
+    }
+
+    clusters.resize( w + 1 );
+    return clusters;
+}
+
+
 void ALIGNMENT_GUIDE_ENGINE::collectAxisCandidates( const BOX2I& aMoving, int aAxis,
+                                                    const std::vector<CLUSTER>& aClusters,
                                                     std::vector<SNAP_CANDIDATE>& aOut ) const
 {
     const SPAN ms = spanOf( aMoving, aAxis );
@@ -81,49 +128,29 @@ void ALIGNMENT_GUIDE_ENGINE::collectAxisCandidates( const BOX2I& aMoving, int aA
         aOut.push_back( { ns.Center() - ms.Center(), KIND_ALIGN, i, i, ns.Center() } );
     }
 
-    // Equal-spacing: for each pair of neighbors adjacent along this axis whose
-    // cross-axis spans overlap the moving box, offer positions that extend the
-    // pair's gap on either side.
-    const SPAN crossMs = spanOf( aMoving, 1 - aAxis );
-
-    std::vector<size_t> overlapping;
-
-    for( size_t i = 0; i < m_neighbors.size(); ++i )
+    // Equal-spacing: for each pair of adjacent clusters, offer positions that extend
+    // the pair's gap on either side.  Clusters, not raw neighbors: the gap between two
+    // clusters is empty by construction, whereas the gap between two boxes picked by
+    // sort order can run through a third box.
+    for( size_t k = 0; k + 1 < aClusters.size(); ++k )
     {
-        if( spansOverlap( spanOf( m_neighbors[i], 1 - aAxis ), crossMs ) )
-            overlapping.push_back( i );
-    }
+        const CLUSTER& left = aClusters[k];
+        const CLUSTER& right = aClusters[k + 1];
+        const int      gap = right.Min - left.Max; // > 0: touching clusters were merged
 
-    std::sort( overlapping.begin(), overlapping.end(),
-               [&]( size_t a, size_t b )
-               {
-                   return spanOf( m_neighbors[a], aAxis ).Min
-                          < spanOf( m_neighbors[b], aAxis ).Min;
-               } );
+        // Moving box after the right cluster with the same gap
+        aOut.push_back( { ( right.Max + gap ) - ms.Min, KIND_EQUAL_GAP, k, k + 1, 0 } );
 
-    for( size_t k = 0; k + 1 < overlapping.size(); ++k )
-    {
-        const size_t i = overlapping[k];
-        const size_t j = overlapping[k + 1];
-        const SPAN   si = spanOf( m_neighbors[i], aAxis );
-        const SPAN   sj = spanOf( m_neighbors[j], aAxis );
-        const int    gap = sj.Min - si.Max;
-
-        if( gap < 0 )
-            continue; // overlapping neighbors: no meaningful gap
-
-        // Moving box after j with the same gap: moving.Min = j.Max + gap
-        aOut.push_back( { ( sj.Max + gap ) - ms.Min, KIND_EQUAL_GAP, i, j, 0 } );
-
-        // Moving box before i with the same gap: moving.Max = i.Min - gap
-        aOut.push_back( { ( si.Min - gap ) - ms.Max, KIND_EQUAL_GAP, j, i, 0 } );
+        // Moving box before the left cluster with the same gap.  Anchored on the
+        // cluster edge, not on whichever box happened to sort first.
+        aOut.push_back( { ( left.Min - gap ) - ms.Max, KIND_EQUAL_GAP, k + 1, k, 0 } );
 
         // Moving box centered between the pair, if it fits.  Odd leftover room
         // truncates, so the two resulting gaps can differ by one unit.
         if( gap >= ms.Size() )
         {
-            const int targetMin = si.Max + ( gap - ms.Size() ) / 2;
-            aOut.push_back( { targetMin - ms.Min, KIND_BETWEEN, i, j, 0 } );
+            const int targetMin = left.Max + ( gap - ms.Size() ) / 2;
+            aOut.push_back( { targetMin - ms.Min, KIND_BETWEEN, k, k + 1, 0 } );
         }
     }
 
@@ -137,18 +164,20 @@ void ALIGNMENT_GUIDE_ENGINE::collectAxisCandidates( const BOX2I& aMoving, int aA
 
 
 void ALIGNMENT_GUIDE_ENGINE::buildGraphics( const BOX2I& aSnapped, int aAxis,
-                                            const SNAP_CANDIDATE& aWinner, RESULT& aResult ) const
+                                            const SNAP_CANDIDATE&       aWinner,
+                                            const std::vector<CLUSTER>& aClusters,
+                                            RESULT&                     aResult ) const
 {
-    const BOX2I& other = ( aWinner.Kind == KIND_CONTAINER ) ? m_containers[aWinner.N1]
-                                                            : m_neighbors[aWinner.N1];
-
-    if( aWinner.Kind == KIND_ALIGN )
+    // See the header for what N1/N2 index in each case: the convention differs per kind.
+    switch( aWinner.Kind )
+    {
+    case KIND_ALIGN:
     {
         // Guide line runs along the snapped ordinate, spanning both boxes on the
         // cross axis.  The ordinate was recorded when the candidate was collected.
         const int  ord = aWinner.Ord;
         const SPAN crossM = spanOf( aSnapped, 1 - aAxis );
-        const SPAN crossN = spanOf( other, 1 - aAxis );
+        const SPAN crossN = spanOf( m_neighbors[aWinner.N1], 1 - aAxis );
         const int  lo = std::min( crossM.Min, crossN.Min );
         const int  hi = std::max( crossM.Max, crossN.Max );
 
@@ -156,55 +185,70 @@ void ALIGNMENT_GUIDE_ENGINE::buildGraphics( const BOX2I& aSnapped, int aAxis,
             aResult.Lines.emplace_back( VECTOR2I( ord, lo ), VECTOR2I( ord, hi ) );
         else
             aResult.Lines.emplace_back( VECTOR2I( lo, ord ), VECTOR2I( hi, ord ) );
+
+        break;
     }
 
-    if( aWinner.Kind == KIND_EQUAL_GAP )
+    case KIND_EQUAL_GAP:
     {
-        // N1 = far neighbor, N2 = near neighbor (the one adjacent to the moving box)
-        const SPAN sFar = spanOf( m_neighbors[aWinner.N1], aAxis );
-        const SPAN sNear = spanOf( m_neighbors[aWinner.N2], aAxis );
-        const SPAN sMov = spanOf( aSnapped, aAxis );
+        // Not named far/near: those are legacy Windows macros.
+        const CLUSTER& cFar = aClusters[aWinner.N1];
+        const CLUSTER& cNear = aClusters[aWinner.N2];
+        const SPAN     sMov = spanOf( aSnapped, aAxis );
 
-        const SPAN crossNear = spanOf( m_neighbors[aWinner.N2], 1 - aAxis );
         const SPAN crossMov = spanOf( aSnapped, 1 - aAxis );
-        const int  crossMid = ( std::max( crossNear.Min, crossMov.Min )
-                                + std::min( crossNear.Max, crossMov.Max ) ) / 2;
+        const int  crossMid = ( std::max( cNear.CrossMin, crossMov.Min )
+                                + std::min( cNear.CrossMax, crossMov.Max ) ) / 2;
 
-        if( sMov.Min > sNear.Max ) // moving sits after the pair
+        // Sound only because the gap is strictly positive: "after" puts the moving
+        // box at cNear.Max + gap, "before" puts its *far* edge at cNear.Min - gap, so
+        // the two cases cannot both satisfy this.  A zero gap would collapse them
+        // and send the "after" case down the "before" branch, emitting negative
+        // badges — buildClusters merges touching neighbors to prevent exactly that.
+        if( sMov.Min > cNear.Max ) // moving sits after the pair
         {
-            pushBadge( aResult, aAxis, crossMid, sFar.Max, sNear.Min );
-            pushBadge( aResult, aAxis, crossMid, sNear.Max, sMov.Min );
+            pushBadge( aResult, aAxis, crossMid, cFar.Max, cNear.Min );
+            pushBadge( aResult, aAxis, crossMid, cNear.Max, sMov.Min );
         }
         else // moving sits before the pair
         {
-            pushBadge( aResult, aAxis, crossMid, sMov.Max, sNear.Min );
-            pushBadge( aResult, aAxis, crossMid, sNear.Max, sFar.Min );
+            pushBadge( aResult, aAxis, crossMid, sMov.Max, cNear.Min );
+            pushBadge( aResult, aAxis, crossMid, cNear.Max, cFar.Min );
         }
+
+        break;
     }
 
-    if( aWinner.Kind == KIND_BETWEEN )
+    case KIND_BETWEEN:
     {
-        // N1 = neighbor before the moving box, N2 = neighbor after it
-        const SPAN sLeft = spanOf( m_neighbors[aWinner.N1], aAxis );
-        const SPAN sRight = spanOf( m_neighbors[aWinner.N2], aAxis );
-        const SPAN sMov = spanOf( aSnapped, aAxis );
+        const CLUSTER& left = aClusters[aWinner.N1];
+        const CLUSTER& right = aClusters[aWinner.N2];
+        const SPAN     sMov = spanOf( aSnapped, aAxis );
 
         const SPAN crossMov = spanOf( aSnapped, 1 - aAxis );
         const int  crossMid = crossMov.Min + crossMov.Size() / 2;
 
-        pushBadge( aResult, aAxis, crossMid, sLeft.Max, sMov.Min );
-        pushBadge( aResult, aAxis, crossMid, sMov.Max, sRight.Min );
+        pushBadge( aResult, aAxis, crossMid, left.Max, sMov.Min );
+        pushBadge( aResult, aAxis, crossMid, sMov.Max, right.Min );
+        break;
     }
 
-    if( aWinner.Kind == KIND_CONTAINER )
+    case KIND_CONTAINER:
     {
-        const VECTOR2I center( spanOf( other, 0 ).Center(), spanOf( other, 1 ).Center() );
+        const BOX2I&   box = m_containers[aWinner.N1];
+        const VECTOR2I center( spanOf( box, 0 ).Center(), spanOf( box, 1 ).Center() );
 
         // One mark per snap, even if both axes won on the same container.  At most
         // two marks are ever pushed (one per axis), so comparing back() is a full
         // duplicate check, not just a neighbouring-element one.
         if( aResult.CenterMarks.empty() || aResult.CenterMarks.back() != center )
             aResult.CenterMarks.push_back( center );
+
+        break;
+    }
+
+    default:
+        break;
     }
 }
 
@@ -216,14 +260,17 @@ ALIGNMENT_GUIDE_ENGINE::FindSnap( const BOX2I& aMoving, int aSnapRange ) const
     result.Offset = VECTOR2I( 0, 0 );
 
     std::optional<SNAP_CANDIDATE> winners[2];
+    std::vector<CLUSTER>          clusters[2];
 
     for( int axis = 0; axis < 2; ++axis )
     {
+        clusters[axis] = buildClusters( aMoving, axis );
+
         std::vector<SNAP_CANDIDATE> candidates;
         // 5 alignment candidates per neighbor, plus up to 3 (2 equal-gap + 1 between)
-        // per adjacent pair, of which there are fewer than m_neighbors.size().
+        // per adjacent cluster pair, of which there are fewer than m_neighbors.size().
         candidates.reserve( 8 * m_neighbors.size() + m_containers.size() );
-        collectAxisCandidates( aMoving, axis, candidates );
+        collectAxisCandidates( aMoving, axis, clusters[axis], candidates );
 
         std::optional<SNAP_CANDIDATE> best;
 
@@ -232,8 +279,25 @@ ALIGNMENT_GUIDE_ENGINE::FindSnap( const BOX2I& aMoving, int aSnapRange ) const
             if( std::abs( c.Delta ) > aSnapRange )
                 continue;
 
-            // Strict <: ties keep the first-pushed candidate, so the preference order
-            // is min -> max -> center within a neighbor, then by neighbor index.
+            // Smallest |Delta| in range wins.  Strict < keeps the first-pushed
+            // candidate on a tie, and collectAxisCandidates pushes in a fixed order,
+            // so the full selection rule is:
+            //
+            //  1. alignment beats every other kind, because the whole alignment loop
+            //     runs before any gap or container candidate is pushed;
+            //  2. within alignment, neighbors in input order, and within one neighbor
+            //     the pairing order min-min, max-min, min-max, max-max, center-center
+            //     — so an edge beats a center on a tie, and Ord is that edge's;
+            //  3. then gap kinds, cluster pairs left to right, each pair pushing
+            //     after -> before -> between;
+            //  4. containers last.
+            //
+            // The order is load-bearing, not incidental: rule 2 decides which ordinate
+            // a multi-way edge tie draws its guide on (see ContainerLosesToNearerAlignment),
+            // and rule 1 means a tie between an alignment and a gap or container
+            // candidate always renders as a guide line rather than as badges or a
+            // center mark.  Reordering the pushes in collectAxisCandidates silently
+            // changes both.
             if( !best || std::abs( c.Delta ) < std::abs( best->Delta ) )
                 best = c;
         }
@@ -258,7 +322,7 @@ ALIGNMENT_GUIDE_ENGINE::FindSnap( const BOX2I& aMoving, int aSnapRange ) const
     for( int axis = 0; axis < 2; ++axis )
     {
         if( winners[axis] )
-            buildGraphics( snapped, axis, *winners[axis], result );
+            buildGraphics( snapped, axis, *winners[axis], clusters[axis], result );
     }
 
     return result;
