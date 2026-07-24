@@ -537,9 +537,18 @@ bool TOOL_DISPATCHER::isStaleAutoRepeat( const wxKeyEvent& aKeyEvent )
 {
     int key = aKeyEvent.GetKeyCode();
 
+#ifdef __WXGTK__
+    // On GTK 3.18+ wxGetKeyState() supports only Ctrl/Alt/Shift/Caps/Num/Scroll Lock;
+    // for anything else it asserts and returns false.  Since every hotkey reaching
+    // here is a letter, digit or named WXK_ code, the live key state is simply not
+    // available.  Assume the key is still down: that can only suppress the stale
+    // repeat drop, never discard a keypress the user actually made.
+    bool keyIsDown = true;
+#else
     // wxGetKeyState answers reliably for letters, digits and the named WXK_ codes used as
     // hotkeys; modifier-only keys never reach here.
     bool keyIsDown = wxGetKeyState( static_cast<wxKeyCode>( key ) );
+#endif
 
     return ShouldDropAutoRepeat( key, wxGetLocalTimeMillis(), keyIsDown, m_lastKeyCode,
                                  m_lastKeyTime );
