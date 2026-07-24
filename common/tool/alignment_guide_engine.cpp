@@ -20,7 +20,6 @@
 #include <tool/alignment_guide_engine.h>
 
 #include <algorithm>
-#include <cmath>
 #include <cstdlib>
 
 namespace
@@ -256,7 +255,7 @@ void ALIGNMENT_GUIDE_ENGINE::buildGraphics( const BOX2I& aSnapped, int aAxis,
 
 std::optional<ALIGNMENT_GUIDE_ENGINE::RESULT>
 ALIGNMENT_GUIDE_ENGINE::FindSnap( const BOX2I& aMoving, int aSnapRange,
-                                  const std::optional<VECTOR2D>& aGridStep ) const
+                                  const std::optional<VECTOR2I>& aGridStep ) const
 {
     RESULT result;
     result.Offset = VECTOR2I( 0, 0 );
@@ -278,23 +277,19 @@ ALIGNMENT_GUIDE_ENGINE::FindSnap( const BOX2I& aMoving, int aSnapRange,
 
         for( const SNAP_CANDIDATE& c : candidates )
         {
-            if( aGridStep )
-            {
-                const double g = ( axis == 0 ) ? aGridStep->x : aGridStep->y;
-
-                if( g > 0 )
-                {
-                    const double steps = c.Delta / g;
-
-                    // Reject, never round: a rounded offset would leave the item off the
-                    // alignment the guide line is about to claim.
-                    if( std::abs( steps - std::round( steps ) ) > 1e-6 )
-                        continue;
-                }
-            }
-
             if( std::abs( c.Delta ) > aSnapRange )
                 continue;
+
+            if( aGridStep )
+            {
+                const int g = ( axis == 0 ) ? aGridStep->x : aGridStep->y;
+
+                // Reject, never round: a rounded offset would leave the item off the
+                // alignment the guide line is about to claim.  Fails closed on a
+                // non-positive step, since a missed rejection means a disconnected net.
+                if( g <= 0 || c.Delta % g != 0 )
+                    continue;
+            }
 
             // Smallest |Delta| in range wins.  Strict < keeps the first-pushed
             // candidate on a tie, and collectAxisCandidates pushes in a fixed order,

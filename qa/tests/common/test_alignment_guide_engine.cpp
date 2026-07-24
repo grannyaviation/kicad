@@ -513,7 +513,7 @@ BOOST_AUTO_TEST_CASE( GridLegalOffsetSurvives )
     // Left edges align at x=0 with delta -10, which is exactly 1 step of a grid of 10.
     BOX2I moving( VECTOR2I( 10, 500 ), VECTOR2I( 40, 20 ) );
 
-    auto result = engine.FindSnap( moving, 15, VECTOR2D( 10, 10 ) );
+    auto result = engine.FindSnap( moving, 15, VECTOR2I( 10, 10 ) );
 
     BOOST_REQUIRE( result.has_value() );
     BOOST_CHECK_EQUAL( result->Offset.x, -10 );
@@ -530,7 +530,7 @@ BOOST_AUTO_TEST_CASE( GridIllegalOffsetIsRejectedNotRounded )
     // The engine must NOT round it to 0 and must NOT report a snap on X.
     BOX2I moving( VECTOR2I( 3, 500 ), VECTOR2I( 40, 20 ) );
 
-    auto result = engine.FindSnap( moving, 15, VECTOR2D( 10, 10 ) );
+    auto result = engine.FindSnap( moving, 15, VECTOR2I( 10, 10 ) );
 
     // No X candidate is grid-legal and Y is far away, so there is no snap at all.
     BOOST_CHECK( !result.has_value() );
@@ -544,14 +544,43 @@ BOOST_AUTO_TEST_CASE( GridLegalCandidateBeatsNearerIllegalOne )
     engine.SetNeighbors( { BOX2I( VECTOR2I( 0, 0 ), VECTOR2I( 100, 50 ) ),
                            BOX2I( VECTOR2I( 104, 0 ), VECTOR2I( 50, 50 ) ) } );
 
-    // Moving left edge at 110: B.left gives delta -6 (illegal on a grid of 10),
-    // A.right gives delta -10 (legal).  The legal, farther candidate must win.
+    // Moving box x:[110,150].  Every in-range candidate is illegal on a grid of 10
+    // except A.right (delta -10): the nearest is centre-to-centre (B centre 129 vs
+    // moving centre 130, delta -1), then max-max (B.right 154 vs moving.right 150,
+    // delta +4), then B.left (delta -6).  The legal, farther candidate beats all three.
     BOX2I moving( VECTOR2I( 110, 500 ), VECTOR2I( 40, 20 ) );
 
-    auto result = engine.FindSnap( moving, 15, VECTOR2D( 10, 10 ) );
+    auto result = engine.FindSnap( moving, 15, VECTOR2I( 10, 10 ) );
 
     BOOST_REQUIRE( result.has_value() );
     BOOST_CHECK_EQUAL( result->Offset.x, -10 );
+}
+
+
+BOOST_AUTO_TEST_CASE( GridStepIsPerAxis )
+{
+    ALIGNMENT_GUIDE_ENGINE engine;
+    engine.SetNeighbors( { BOX2I( VECTOR2I( 0, 0 ), VECTOR2I( 100, 50 ) ) } );
+
+    // Moving box x:[20,60] (centre 40), y:[-25,-5] (centre -15), grid 10 x 25.
+    //
+    // X, step 10: min-min -20 and centre-centre (50-40) +10 are both in range and
+    //   both whole multiples -> +10 wins on distance.  Neither is a multiple of 25.
+    // Y, step 25: min-min (0 - -25) +25 is in range and a whole multiple of 25 but
+    //   not of 10.  The other in-range Y candidate, min-max (0 - -5) +5, is a
+    //   multiple of neither; max-min +75, max-max +55 and centre (25 - -15) +40 are
+    //   all beyond the range of 30.
+    //
+    // So each axis is legal only under *its own* step: reading aGridStep->x for both
+    // axes rejects the +25 and leaves Offset.y at 0, and reading ->y for both rejects
+    // -20 and +10 and leaves Offset.x at 0.
+    BOX2I moving( VECTOR2I( 20, -25 ), VECTOR2I( 40, 20 ) );
+
+    auto result = engine.FindSnap( moving, 30, VECTOR2I( 10, 25 ) );
+
+    BOOST_REQUIRE( result.has_value() );
+    BOOST_CHECK_EQUAL( result->Offset.x, 10 );
+    BOOST_CHECK_EQUAL( result->Offset.y, 25 );
 }
 
 

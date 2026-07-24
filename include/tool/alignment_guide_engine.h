@@ -73,13 +73,22 @@ public:
      * @param aSnapRange maximum snap distance in world units
      * @param aGridStep  if set, candidates whose offset is not a whole multiple of this
      *                   step are rejected outright.  Callers whose items must stay on a
-     *                   grid (schematic pins) pass it; offsets are never rounded, because
-     *                   a rounded offset would leave the item unaligned while the guide
-     *                   line claimed otherwise.
+     *                   grid (schematic pins) pass it.  Three things to know:
+     *
+     *                   - offsets are rejected, never rounded: a rounded offset would
+     *                     leave the item unaligned while the guide line claimed otherwise;
+     *                   - a non-positive component rejects every candidate on that axis,
+     *                     so a zero step degrades to "guides don't engage" rather than to
+     *                     "every candidate is legal";
+     *                   - precondition: aMoving must already be grid-aligned.  A
+     *                     whole-multiple offset only keeps the item on grid if it started
+     *                     on grid.  The engine is handed the *unsnapped* box and cannot
+     *                     check this; KiCad's move tools satisfy it by feeding a
+     *                     grid-snapped cursor.
      * @return snap offset + guide graphics, or std::nullopt if nothing in range
      */
     std::optional<RESULT> FindSnap( const BOX2I& aMoving, int aSnapRange,
-                                    const std::optional<VECTOR2D>& aGridStep = std::nullopt ) const;
+                                    const std::optional<VECTOR2I>& aGridStep = std::nullopt ) const;
 
 private:
     /// A maximal run of neighbors that overlap or touch along one axis, merged into a
