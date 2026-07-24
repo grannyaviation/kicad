@@ -92,4 +92,65 @@ BOOST_AUTO_TEST_CASE( CenterAlignNegativeX )
 }
 
 
+BOOST_AUTO_TEST_CASE( CenterAlignY )
+{
+    ALIGNMENT_GUIDE_ENGINE engine;
+    engine.SetNeighbors( { BOX2I( VECTOR2I( 0, 0 ), VECTOR2I( 100, 50 ) ) } ); // centerY = 25
+
+    // Moving box 20 tall, top at y=17 -> centerY = 27, should center-align to 25
+    BOX2I moving( VECTOR2I( 500, 17 ), VECTOR2I( 40, 20 ) );
+
+    auto result = engine.FindSnap( moving, 10 );
+
+    BOOST_REQUIRE( result.has_value() );
+    BOOST_CHECK_EQUAL( result->Offset.y, -2 );
+    BOOST_CHECK_EQUAL( result->Offset.x, 0 );
+}
+
+
+BOOST_AUTO_TEST_CASE( BothAxesIndependent )
+{
+    ALIGNMENT_GUIDE_ENGINE engine;
+    engine.SetNeighbors( { BOX2I( VECTOR2I( 0, 0 ), VECTOR2I( 100, 50 ) ) } );
+
+    // Left edge near x=0 (delta -4), top edge near y=0 (delta +3)
+    BOX2I moving( VECTOR2I( 4, -3 ), VECTOR2I( 40, 20 ) );
+
+    auto result = engine.FindSnap( moving, 10 );
+
+    BOOST_REQUIRE( result.has_value() );
+    BOOST_CHECK_EQUAL( result->Offset.x, -4 );
+    BOOST_CHECK_EQUAL( result->Offset.y, 3 );
+    BOOST_CHECK_EQUAL( result->Lines.size(), 2 );
+}
+
+
+BOOST_AUTO_TEST_CASE( NearestCandidateWins )
+{
+    ALIGNMENT_GUIDE_ENGINE engine;
+    // Two neighbors: right edge of A at 100, left edge of B at 103
+    engine.SetNeighbors( { BOX2I( VECTOR2I( 0, 0 ), VECTOR2I( 100, 50 ) ),
+                           BOX2I( VECTOR2I( 103, 0 ), VECTOR2I( 50, 50 ) ) } );
+
+    // Moving left edge at 102: B.left (delta +1) beats A.right (delta -2)
+    BOX2I moving( VECTOR2I( 102, 500 ), VECTOR2I( 40, 20 ) );
+
+    auto result = engine.FindSnap( moving, 10 );
+
+    BOOST_REQUIRE( result.has_value() );
+    BOOST_CHECK_EQUAL( result->Offset.x, 1 );
+}
+
+
+BOOST_AUTO_TEST_CASE( OutOfRangeNoSnap )
+{
+    ALIGNMENT_GUIDE_ENGINE engine;
+    engine.SetNeighbors( { BOX2I( VECTOR2I( 0, 0 ), VECTOR2I( 100, 50 ) ) } );
+
+    BOX2I moving( VECTOR2I( 500, 500 ), VECTOR2I( 40, 20 ) );
+
+    BOOST_CHECK( !engine.FindSnap( moving, 10 ).has_value() );
+}
+
+
 BOOST_AUTO_TEST_SUITE_END()
