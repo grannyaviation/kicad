@@ -46,6 +46,20 @@ bool spansOverlap( const SPAN& aA, const SPAN& aB )
 {
     return aA.Min <= aB.Max && aB.Min <= aA.Max;
 }
+
+/// Append a badge measuring the aFrom..aTo gap along aAxis, drawn at aCrossMid on the
+/// cross axis.  Callers decide what "the middle" means for their kind of snap.
+void pushBadge( ALIGNMENT_GUIDE_ENGINE::RESULT& aResult, int aAxis, int aCrossMid, int aFrom,
+                int aTo )
+{
+    ALIGNMENT_GUIDE_ENGINE::GAP_BADGE badge;
+    badge.Gap = aTo - aFrom;
+    badge.Vertical = ( aAxis == 1 );
+
+    const int mid = aFrom + badge.Gap / 2;
+    badge.Pos = ( aAxis == 0 ) ? VECTOR2I( mid, aCrossMid ) : VECTOR2I( aCrossMid, mid );
+    aResult.Badges.push_back( badge );
+}
 } // namespace
 
 
@@ -103,6 +117,14 @@ void ALIGNMENT_GUIDE_ENGINE::collectAxisCandidates( const BOX2I& aMoving, int aA
 
         // Moving box before i with the same gap: moving.Max = i.Min - gap
         aOut.push_back( { ( si.Min - gap ) - ms.Max, KIND_EQUAL_GAP, j, i, 0 } );
+
+        // Moving box centered between the pair, if it fits.  Odd leftover room
+        // truncates, so the two resulting gaps can differ by one unit.
+        if( gap >= ms.Size() )
+        {
+            const int targetMin = si.Max + ( gap - ms.Size() ) / 2;
+            aOut.push_back( { targetMin - ms.Min, KIND_BETWEEN, i, j, 0 } );
+        }
     }
 }
 
@@ -141,28 +163,30 @@ void ALIGNMENT_GUIDE_ENGINE::buildGraphics( const BOX2I& aSnapped, int aAxis,
         const int  crossMid = ( std::max( crossNear.Min, crossMov.Min )
                                 + std::min( crossNear.Max, crossMov.Max ) ) / 2;
 
-        auto makeBadge = [&]( int aFrom, int aTo )
-        {
-            GAP_BADGE badge;
-            badge.Gap = aTo - aFrom;
-            badge.Vertical = ( aAxis == 1 );
-
-            const int mid = aFrom + badge.Gap / 2;
-            badge.Pos = ( aAxis == 0 ) ? VECTOR2I( mid, crossMid )
-                                       : VECTOR2I( crossMid, mid );
-            aResult.Badges.push_back( badge );
-        };
-
         if( sMov.Min > sNear.Max ) // moving sits after the pair
         {
-            makeBadge( sFar.Max, sNear.Min );
-            makeBadge( sNear.Max, sMov.Min );
+            pushBadge( aResult, aAxis, crossMid, sFar.Max, sNear.Min );
+            pushBadge( aResult, aAxis, crossMid, sNear.Max, sMov.Min );
         }
         else // moving sits before the pair
         {
-            makeBadge( sMov.Max, sNear.Min );
-            makeBadge( sNear.Max, sFar.Min );
+            pushBadge( aResult, aAxis, crossMid, sMov.Max, sNear.Min );
+            pushBadge( aResult, aAxis, crossMid, sNear.Max, sFar.Min );
         }
+    }
+
+    if( aWinner.Kind == KIND_BETWEEN )
+    {
+        // N1 = neighbor before the moving box, N2 = neighbor after it
+        const SPAN sLeft = spanOf( m_neighbors[aWinner.N1], aAxis );
+        const SPAN sRight = spanOf( m_neighbors[aWinner.N2], aAxis );
+        const SPAN sMov = spanOf( aSnapped, aAxis );
+
+        const SPAN crossMov = spanOf( aSnapped, 1 - aAxis );
+        const int  crossMid = crossMov.Min + crossMov.Size() / 2;
+
+        pushBadge( aResult, aAxis, crossMid, sLeft.Max, sMov.Min );
+        pushBadge( aResult, aAxis, crossMid, sMov.Max, sRight.Min );
     }
 }
 
@@ -178,7 +202,9 @@ ALIGNMENT_GUIDE_ENGINE::FindSnap( const BOX2I& aMoving, int aSnapRange ) const
     for( int axis = 0; axis < 2; ++axis )
     {
         std::vector<SNAP_CANDIDATE> candidates;
-        candidates.reserve( 5 * ( m_neighbors.size() + m_containers.size() ) );
+        // 5 alignment candidates per neighbor, plus up to 3 (2 equal-gap + 1 between)
+        // per adjacent pair, of which there are fewer than m_neighbors.size().
+        candidates.reserve( 8 * m_neighbors.size() + m_containers.size() );
         collectAxisCandidates( aMoving, axis, candidates );
 
         std::optional<SNAP_CANDIDATE> best;

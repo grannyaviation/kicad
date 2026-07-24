@@ -225,4 +225,48 @@ BOOST_AUTO_TEST_CASE( EqualSpacingRequiresCrossOverlap )
 }
 
 
+BOOST_AUTO_TEST_CASE( CenterBetweenTwoNeighbors )
+{
+    ALIGNMENT_GUIDE_ENGINE engine;
+    // A x:[0,20], B x:[100,120]; room between edges = 80, moving is 20 wide
+    // -> centered position has 30 on each side: moving x:[50,70]
+    engine.SetNeighbors( { BOX2I( VECTOR2I( 0, 0 ), VECTOR2I( 20, 20 ) ),
+                           BOX2I( VECTOR2I( 100, 0 ), VECTOR2I( 20, 20 ) ) } );
+
+    BOX2I moving( VECTOR2I( 53, 0 ), VECTOR2I( 20, 20 ) );
+
+    auto result = engine.FindSnap( moving, 10 );
+
+    BOOST_REQUIRE( result.has_value() );
+    BOOST_CHECK_EQUAL( result->Offset.x, -3 );
+
+    BOOST_REQUIRE_EQUAL( result->Badges.size(), 2 );
+    BOOST_CHECK_EQUAL( result->Badges[0].Gap, 30 );
+    BOOST_CHECK_EQUAL( result->Badges[1].Gap, 30 );
+}
+
+
+BOOST_AUTO_TEST_CASE( CenterBetweenOddLeftoverIsAsymmetric )
+{
+    ALIGNMENT_GUIDE_ENGINE engine;
+    // A x:[0,20], B x:[101,121] -> room 81 for a 20-wide box.  81-20=61 is odd, so
+    // the integer halving cannot split it evenly: left gap 30, right gap 31.
+    engine.SetNeighbors( { BOX2I( VECTOR2I( 0, 0 ), VECTOR2I( 20, 20 ) ),
+                           BOX2I( VECTOR2I( 101, 0 ), VECTOR2I( 20, 20 ) ) } );
+
+    BOX2I moving( VECTOR2I( 53, 0 ), VECTOR2I( 20, 20 ) );
+
+    auto result = engine.FindSnap( moving, 10 );
+
+    BOOST_REQUIRE( result.has_value() );
+    BOOST_CHECK_EQUAL( result->Offset.x, -3 ); // 20 + 61/2 = 50, so x:[50,70]
+
+    BOOST_REQUIRE_EQUAL( result->Badges.size(), 2 );
+    BOOST_CHECK_EQUAL( result->Badges[0].Gap, 30 );
+    BOOST_CHECK_EQUAL( result->Badges[1].Gap, 31 );
+    BOOST_CHECK_EQUAL( result->Badges[0].Pos.x, 35 );
+    BOOST_CHECK_EQUAL( result->Badges[1].Pos.x, 85 );
+}
+
+
 BOOST_AUTO_TEST_SUITE_END()
