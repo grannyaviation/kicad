@@ -60,23 +60,27 @@ public:
         m_containers.clear();
     }
 
-    bool HasCandidates() const { return !m_neighbors.empty() || !m_containers.empty(); }
+    bool HasInputs() const { return !m_neighbors.empty() || !m_containers.empty(); }
 
     /**
      * Compute the best snap for aMoving.
      *
+     * Precondition: deltas are computed in int, so callers must not pass boxes more
+     * than ~2.1 m (INT_MAX nm) apart.  A default-constructed (uninitialised) BOX2I is
+     * treated as a real point box at the origin, not as "absent".
+     *
      * @param aMoving    the moving selection's bbox at the unsnapped position
      * @param aSnapRange maximum snap distance in world units
-     * @param aGrid      if set, offsets are quantized to multiples of this grid so
-     *                   items that started on-grid stay on-grid; quantized offsets
-     *                   that leave aSnapRange are dropped
      * @return snap offset + guide graphics, or std::nullopt if nothing in range
      */
-    std::optional<RESULT> FindSnap( const BOX2I& aMoving, int aSnapRange,
-                                    const std::optional<VECTOR2D>& aGrid = std::nullopt ) const;
+    std::optional<RESULT> FindSnap( const BOX2I& aMoving, int aSnapRange ) const;
 
 private:
     /// One potential snap position along one axis
+    ///
+    /// NOTE: named SNAP_CANDIDATE, not CANDIDATE — include/eda_item_flags.h:46
+    /// defines a CANDIDATE macro that leaks in through the include chain and
+    /// breaks compilation.
     struct SNAP_CANDIDATE
     {
         int    Delta;  ///< Offset along the axis to reach this candidate

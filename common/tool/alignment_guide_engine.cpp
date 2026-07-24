@@ -19,10 +19,8 @@
 
 #include <tool/alignment_guide_engine.h>
 
-#include <cmath>
+#include <algorithm>
 #include <cstdlib>
-
-#include <math/util.h>
 
 namespace
 {
@@ -108,8 +106,7 @@ void ALIGNMENT_GUIDE_ENGINE::buildGraphics( const BOX2I& aSnapped, int aAxis,
 
 
 std::optional<ALIGNMENT_GUIDE_ENGINE::RESULT>
-ALIGNMENT_GUIDE_ENGINE::FindSnap( const BOX2I& aMoving, int aSnapRange,
-                                  const std::optional<VECTOR2D>& aGrid ) const
+ALIGNMENT_GUIDE_ENGINE::FindSnap( const BOX2I& aMoving, int aSnapRange ) const
 {
     RESULT result;
     result.Offset = VECTOR2I( 0, 0 );
@@ -119,24 +116,18 @@ ALIGNMENT_GUIDE_ENGINE::FindSnap( const BOX2I& aMoving, int aSnapRange,
     for( int axis = 0; axis < 2; ++axis )
     {
         std::vector<SNAP_CANDIDATE> candidates;
+        candidates.reserve( 5 * ( m_neighbors.size() + m_containers.size() ) );
         collectAxisCandidates( aMoving, axis, candidates );
 
         std::optional<SNAP_CANDIDATE> best;
 
-        for( SNAP_CANDIDATE& c : candidates )
+        for( const SNAP_CANDIDATE& c : candidates )
         {
-            if( aGrid )
-            {
-                // Quantize the offset so items that started on-grid stay on-grid
-                double g = ( axis == 0 ) ? aGrid->x : aGrid->y;
-
-                if( g > 0 )
-                    c.Delta = KiROUND( KiROUND( c.Delta / g ) * g );
-            }
-
             if( std::abs( c.Delta ) > aSnapRange )
                 continue;
 
+            // Strict <: ties keep the first-pushed candidate, so the preference order
+            // is min -> max -> center within a neighbor, then by neighbor index.
             if( !best || std::abs( c.Delta ) < std::abs( best->Delta ) )
                 best = c;
         }
