@@ -380,6 +380,13 @@ std::set<SCH_ITEM*> EE_GRID_HELPER::queryVisible( const BOX2I& aArea,
 
         SCH_ITEM* item = static_cast<SCH_ITEM*>( it.first );
 
+        // aSkipList is erased by pointer below, but when a group is dragged the selection holds
+        // the group and not its members, so the members would survive as "neighbours" of the
+        // thing they are being moved by.  An entered group is not itself SELECTED, so its
+        // children stay visible here.
+        if( item->HasSelectedAncestorGroup() )
+            continue;
+
         if( frame && frame->IsType( FRAME_SCH_SYMBOL_EDITOR ) )
         {
             // If we are in the symbol editor, don't use the symbol itself
