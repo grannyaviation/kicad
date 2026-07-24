@@ -269,9 +269,21 @@ VECTOR2I EE_GRID_HELPER::BestSnapAnchor( const VECTOR2I& aOrigin, GRID_HELPER_GR
             BOX2I movingBox = m_moveContext->OriginalBBox;
             movingBox.Move( pt - m_moveContext->OriginalCursor );
 
+            // The grid constraint only means something when the cursor is grid-snapped
+            // (canUseGrid(), which is what put pt on nearestGrid above).  With grid
+            // snapping off, pt is the raw cursor and movingBox is already off-grid, so
+            // requiring grid-multiple offsets would protect nothing -- and would violate
+            // FindSnap's precondition that aMoving is grid-aligned -- while simply
+            // stopping guides from ever firing.
+            //
             // Integer step: the engine tests grid legality with %, and positions are
             // integers, so the grid a snap can actually honour is the rounded one.
-            if( auto guide = engine.FindSnap( movingBox, snapRange, KiROUND( gridSize ) ) )
+            std::optional<VECTOR2I> gridStep;
+
+            if( canUseGrid() )
+                gridStep = KiROUND( gridSize );
+
+            if( auto guide = engine.FindSnap( movingBox, snapRange, gridStep ) )
             {
                 m_alignGuidePreview.SetGuides( *guide );
                 m_toolMgr->GetView()->Update( &m_alignGuidePreview, KIGFX::GEOMETRY );
