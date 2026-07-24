@@ -131,7 +131,7 @@ ALIGNMENT_GUIDE_ENGINE::FindSnap( const BOX2I& aMoving, int aSnapRange,
                 double g = ( axis == 0 ) ? aGrid->x : aGrid->y;
 
                 if( g > 0 )
-                    c.Delta = KiROUND( c.Delta / g ) * KiROUND( g );
+                    c.Delta = KiROUND( KiROUND( c.Delta / g ) * g );
             }
 
             if( std::abs( c.Delta ) > aSnapRange )
