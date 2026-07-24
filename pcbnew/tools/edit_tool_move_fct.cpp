@@ -1018,6 +1018,7 @@ bool EDIT_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, BOARD_COMMIT* aCommit
     VECTOR2D        bboxMovement;
     BOX2I           originalBBox;
     bool            updateBBox = true;
+    bool            collectGuideNeighbors = true;   // viewport sweep: once per dragged selection
     LSET            layers( { editFrame->GetActiveLayer() } );
     PCB_GRID_HELPER grid( m_toolMgr, editFrame->GetMagneticItemsSettings() );
     TOOL_EVENT      copy = aEvent;
@@ -1199,6 +1200,31 @@ bool EDIT_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, BOARD_COMMIT* aCommit
                         originalBBox.Merge( item->ViewBBox() );
 
                     updateBBox = false;
+
+                    // Alignment guides must measure the moving selection the same way
+                    // CollectAlignmentNeighbors() measures the neighbors, or they line up
+                    // edges the user can't see.  ViewBBox() is GetBoundingBox( true )
+                    // inflated by the board's max clearance, so it can't be reused here.
+                    BOX2I guideBBox;
+
+                    for( EDA_ITEM* item : moved_items )
+                    {
+                        if( item->Type() == PCB_FOOTPRINT_T )
+                            guideBBox.Merge( static_cast<FOOTPRINT*>( item )->GetBoundingBox( false ) );
+                        else
+                            guideBBox.Merge( item->GetBoundingBox() );
+                    }
+
+                    // prevPos, not m_cursor: the items still sit where prevPos put them,
+                    // this event's movement is only applied further down.  The engine
+                    // extrapolates the moving box from this pair, so they must agree.
+                    grid.SetMoveContext( guideBBox, prevPos );
+
+                    if( collectGuideNeighbors )
+                    {
+                        grid.CollectAlignmentNeighbors( sel_items );
+                        collectGuideNeighbors = false;
+                    }
                 }
 
                 // Constrain selection bounding box to coordinates limits
@@ -1502,6 +1528,12 @@ bool EDIT_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, BOARD_COMMIT* aCommit
                     moved_items.insert( nextItem );
                     updateStatusPopup( nextItem, itemIdx + 1, orig_items.size() );
 
+                    // New item, new box: without this the alignment guides would keep
+                    // extrapolating the previous item's box, and the placed item would
+                    // still be in the neighbor set (it would align to itself).
+                    updateBBox = true;
+                    collectGuideNeighbors = true;
+
                     // Pick up new item
                     aCommit->Modify( nextItem, nullptr, RECURSE_MODE::RECURSE );
                     nextItem->Move( controls->GetCursorPosition( true ) - nextItem->GetPosition() );
@@ -1560,6 +1592,10 @@ bool EDIT_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, BOARD_COMMIT* aCommit
         drc_on_move->ClearConflicts( m_toolMgr->GetView() );
 
     creepage_on_move->Stop();
+
+    // Drop the alignment guides before the tail below runs any nested tool action.  (grid is
+    // function-local, so ~GRID_HELPER() would take the overlay item out of the view anyway.)
+    grid.ClearMoveContext();
 
     controls->ForceCursorPosition( false );
     controls->ShowCursor( false );
