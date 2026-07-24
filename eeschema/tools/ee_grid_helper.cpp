@@ -19,12 +19,14 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include <algorithm>
 #include <functional>
 #include <macros.h>
 #include <gal/graphics_abstraction_layer.h>
 #include <sch_group.h>
 #include <sch_item.h>
 #include <sch_line.h>
+#include <sch_symbol.h>
 #include <sch_table.h>
 #include <sch_tablecell.h>
 #include <sch_painter.h>
@@ -300,6 +302,63 @@ SCH_ITEM* EE_GRID_HELPER::GetSnapped() const
         return nullptr;
 
     return static_cast<SCH_ITEM*>( m_snapItem->items[0] );
+}
+
+
+void EE_GRID_HELPER::CollectAlignmentNeighbors( const SCH_SELECTION& aSkip )
+{
+    ALIGNMENT_GUIDE_ENGINE& engine = getSnapManager().GetAlignmentEngine();
+    engine.Clear();
+
+    if( !m_moveContext || !m_toolMgr )
+        return;
+
+    const BOX2I viewport = BOX2ISafe( m_toolMgr->GetView()->GetViewport() );
+
+    struct SCORED
+    {
+        BOX2I  Box;
+        double Dist;
+    };
+
+    std::vector<SCORED> scored;
+    const VECTOR2D      ref( m_moveContext->OriginalBBox.Centre() );
+
+    for( SCH_ITEM* item : queryVisible( viewport, aSkip ) )
+    {
+        if( item->Type() != SCH_SYMBOL_T )
+            continue;
+
+        // Body box only: must match how the moving selection is measured in SCH_MOVE_TOOL,
+        // and field text is not what anyone aligns to.
+        const BOX2I box = static_cast<SCH_SYMBOL*>( item )->GetBodyBoundingBox();
+
+        // GetBodyBoundingBox() swallows a boost::bad_pointer and returns a default-constructed
+        // box.  The engine would take that as a real point box at (0, 0) and pull symbols to it.
+        if( !box.IsValid() )
+            continue;
+
+        // Distance in double: the two centres can be far enough apart to overflow int.
+        scored.push_back( { box, ( VECTOR2D( box.Centre() ) - ref ).EuclideanNorm() } );
+    }
+
+    // Guides are hints; dropping distant neighbours bounds the per-motion cost.
+    constexpr size_t MAX_GUIDE_NEIGHBORS = 100;
+
+    if( scored.size() > MAX_GUIDE_NEIGHBORS )
+    {
+        std::partial_sort( scored.begin(), scored.begin() + MAX_GUIDE_NEIGHBORS, scored.end(),
+                           []( const SCORED& a, const SCORED& b ) { return a.Dist < b.Dist; } );
+        scored.resize( MAX_GUIDE_NEIGHBORS );
+    }
+
+    std::vector<BOX2I> boxes;
+    boxes.reserve( scored.size() );
+
+    for( const SCORED& s : scored )
+        boxes.push_back( s.Box );
+
+    engine.SetNeighbors( std::move( boxes ) );
 }
 
 

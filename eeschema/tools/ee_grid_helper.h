@@ -60,6 +60,14 @@ public:
     VECTOR2I BestSnapAnchor( const VECTOR2I& aOrigin, GRID_HELPER_GRIDS aGrid,
                              const SCH_SELECTION& aSkip = {} );
 
+    /**
+     * Collect neighbour symbol bounding boxes for smart alignment guides.
+     * Call once at drag start, after SetMoveContext().
+     *
+     * @param aSkip the items being dragged (excluded from the neighbour set)
+     */
+    void CollectAlignmentNeighbors( const SCH_SELECTION& aSkip );
+
 private:
     std::set<SCH_ITEM*> queryVisible( const BOX2I& aArea, const SCH_SELECTION& aSkipList ) const;
 
