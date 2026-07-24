@@ -690,6 +690,7 @@ set( COMMON_DRAWING_SHEET_SRCS
     )
 
 set( COMMON_PREVIEW_ITEMS_SRCS
+    preview_items/alignment_guide_geom.cpp
     preview_items/anchor_debug.cpp
     preview_items/angle_item.cpp
     preview_items/arc_assistant.cpp
