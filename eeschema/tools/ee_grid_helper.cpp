@@ -21,6 +21,7 @@
 
 #include <algorithm>
 #include <functional>
+#include <tuple>
 #include <macros.h>
 #include <gal/graphics_abstraction_layer.h>
 #include <sch_group.h>
@@ -315,14 +316,8 @@ void EE_GRID_HELPER::CollectAlignmentNeighbors( const SCH_SELECTION& aSkip )
 
     const BOX2I viewport = BOX2ISafe( m_toolMgr->GetView()->GetViewport() );
 
-    struct SCORED
-    {
-        BOX2I  Box;
-        double Dist;
-    };
-
-    std::vector<SCORED> scored;
-    const VECTOR2D      ref( m_moveContext->OriginalBBox.Centre() );
+    std::vector<BOX2I> boxes;
+    const VECTOR2D     ref( m_moveContext->OriginalBBox.Centre() );
 
     for( SCH_ITEM* item : queryVisible( viewport, aSkip ) )
     {
@@ -338,25 +333,30 @@ void EE_GRID_HELPER::CollectAlignmentNeighbors( const SCH_SELECTION& aSkip )
         if( !box.IsValid() )
             continue;
 
-        // Distance in double: the two centres can be far enough apart to overflow int.
-        scored.push_back( { box, ( VECTOR2D( box.Centre() ) - ref ).EuclideanNorm() } );
+        boxes.push_back( box );
     }
+
+    // The engine keeps the first candidate on a tie and walks neighbours in input order, so the
+    // order decides which neighbour's edge the guide is drawn against.  queryVisible() hands back
+    // a std::set, i.e. pointer-address order, which moves between runs -- hence sort always, not
+    // only when the cap trims.  The bounds break distance ties so the order is total.
+    auto sortKey = [&]( const BOX2I& aBox )
+    {
+        // Distance in double: the two centres can be far enough apart to overflow int.  Squared
+        // is all an ordering needs, and skips the sqrt.
+        return std::make_tuple( ( VECTOR2D( aBox.Centre() ) - ref ).SquaredEuclideanNorm(),
+                                aBox.GetLeft(), aBox.GetTop(), aBox.GetRight(), aBox.GetBottom() );
+    };
 
     // Guides are hints; dropping distant neighbours bounds the per-motion cost.
     constexpr size_t MAX_GUIDE_NEIGHBORS = 100;
 
-    if( scored.size() > MAX_GUIDE_NEIGHBORS )
-    {
-        std::partial_sort( scored.begin(), scored.begin() + MAX_GUIDE_NEIGHBORS, scored.end(),
-                           []( const SCORED& a, const SCORED& b ) { return a.Dist < b.Dist; } );
-        scored.resize( MAX_GUIDE_NEIGHBORS );
-    }
+    const size_t keep = std::min( boxes.size(), MAX_GUIDE_NEIGHBORS );
 
-    std::vector<BOX2I> boxes;
-    boxes.reserve( scored.size() );
-
-    for( const SCORED& s : scored )
-        boxes.push_back( s.Box );
+    std::partial_sort( boxes.begin(), boxes.begin() + keep, boxes.end(),
+                       [&]( const BOX2I& a, const BOX2I& b )
+                       { return sortKey( a ) < sortKey( b ); } );
+    boxes.resize( keep );
 
     engine.SetNeighbors( std::move( boxes ) );
 }
