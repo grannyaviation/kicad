@@ -882,5 +882,6 @@ void SNAP_MANAGER::Clear()
 {
     m_snapLineManager.ClearSnapLine();
     m_constructionManager.Clear();
+    m_alignmentEngine.Clear();
     UpdateSnapGuides();
 }

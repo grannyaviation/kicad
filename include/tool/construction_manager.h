@@ -26,6 +26,7 @@
 #include <vector>
 
 #include <preview_items/construction_geom.h>
+#include <tool/alignment_guide_engine.h>
 
 template <typename T>
 class ACTIVATION_HELPER;
@@ -284,6 +285,8 @@ public:
 
     CONSTRUCTION_MANAGER& GetConstructionManager() { return m_constructionManager; }
 
+    ALIGNMENT_GUIDE_ENGINE& GetAlignmentEngine() { return m_alignmentEngine; }
+
     /**
      * Set the reference-only points - these are points that are not snapped to, but can still
      * be used for connection to the snap line.
@@ -315,6 +318,8 @@ public:
 
     SNAP_LINE_MANAGER    m_snapLineManager;
     CONSTRUCTION_MANAGER m_constructionManager;
+
+    ALIGNMENT_GUIDE_ENGINE m_alignmentEngine;
 
     std::vector<VECTOR2I> m_referenceOnlyPoints;
     KIGFX::COLOR4D        m_snapGuideColor;

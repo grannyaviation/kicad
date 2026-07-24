@@ -70,6 +70,10 @@ GRID_HELPER::GRID_HELPER( TOOL_MANAGER* aToolMgr, int aConstructionLayer ) :
     view->Add( &m_constructionGeomPreview );
     view->SetVisible( &m_constructionGeomPreview, false );
 
+    // No SetVisible( false ) here, unlike the construction geom: ViewDraw() is a no-op while
+    // the item has no guides, so it can just stay registered and visible.
+    view->Add( &m_alignGuidePreview );
+
     m_snapManager.SetUpdateCallback(
             [view, this]( bool aAnythingShown )
             {
@@ -102,6 +106,7 @@ GRID_HELPER::~GRID_HELPER()
 
     KIGFX::VIEW& view = *m_toolMgr->GetView();
     view.Remove( &m_constructionGeomPreview );
+    view.Remove( &m_alignGuidePreview );
 
     if( m_anchorDebug )
         view.Remove( m_anchorDebug.get() );

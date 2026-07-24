@@ -28,6 +28,7 @@
 #include <preview_items/anchor_debug.h>
 #include <preview_items/snap_indicator.h>
 #include <preview_items/construction_geom.h>
+#include <preview_items/alignment_guide_geom.h>
 #include <tool/construction_manager.h>
 #include <tool/selection.h>
 #include <origin_viewitem.h>
@@ -69,6 +70,25 @@ public:
         m_constructionGeomPreview.ClearSnapLine();
         m_snapManager.Clear();
         m_anchors.clear();
+        m_moveContext = std::nullopt;
+        m_alignGuidePreview.ClearGuides();
+    }
+
+    /**
+     * Provide the context needed for smart alignment guides during a move:
+     * the moving selection's bbox and the cursor position at drag start.
+     * While set, BestSnapAnchor implementations may offer alignment snaps.
+     */
+    void SetMoveContext( const BOX2I& aOriginalBBox, const VECTOR2I& aOriginalCursor )
+    {
+        m_moveContext = MOVE_CONTEXT{ aOriginalBBox, aOriginalCursor };
+    }
+
+    void ClearMoveContext()
+    {
+        m_moveContext = std::nullopt;
+        m_snapManager.GetAlignmentEngine().Clear();
+        m_alignGuidePreview.ClearGuides();
     }
 
     // Manual setters used when no TOOL_MANAGER/View is available (e.g. in tests)
@@ -240,6 +260,15 @@ protected:
      * Returns nullptr if not permitted by the advancd config
      */
     KIGFX::ANCHOR_DEBUG* enableAndGetAnchorDebug();
+
+    struct MOVE_CONTEXT
+    {
+        BOX2I    OriginalBBox;
+        VECTOR2I OriginalCursor;
+    };
+
+    std::optional<MOVE_CONTEXT> m_moveContext;
+    KIGFX::ALIGNMENT_GUIDE_GEOM m_alignGuidePreview;
 
     std::vector<ANCHOR>     m_anchors;
 
