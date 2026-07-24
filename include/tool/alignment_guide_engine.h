@@ -71,9 +71,15 @@ public:
      *
      * @param aMoving    the moving selection's bbox at the unsnapped position
      * @param aSnapRange maximum snap distance in world units
+     * @param aGridStep  if set, candidates whose offset is not a whole multiple of this
+     *                   step are rejected outright.  Callers whose items must stay on a
+     *                   grid (schematic pins) pass it; offsets are never rounded, because
+     *                   a rounded offset would leave the item unaligned while the guide
+     *                   line claimed otherwise.
      * @return snap offset + guide graphics, or std::nullopt if nothing in range
      */
-    std::optional<RESULT> FindSnap( const BOX2I& aMoving, int aSnapRange ) const;
+    std::optional<RESULT> FindSnap( const BOX2I& aMoving, int aSnapRange,
+                                    const std::optional<VECTOR2D>& aGridStep = std::nullopt ) const;
 
 private:
     /// A maximal run of neighbors that overlap or touch along one axis, merged into a

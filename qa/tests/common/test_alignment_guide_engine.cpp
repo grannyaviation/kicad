@@ -505,4 +505,54 @@ BOOST_AUTO_TEST_CASE( CrossEdgeAlignOrdinates )
 }
 
 
+BOOST_AUTO_TEST_CASE( GridLegalOffsetSurvives )
+{
+    ALIGNMENT_GUIDE_ENGINE engine;
+    engine.SetNeighbors( { BOX2I( VECTOR2I( 0, 0 ), VECTOR2I( 100, 50 ) ) } );
+
+    // Left edges align at x=0 with delta -10, which is exactly 1 step of a grid of 10.
+    BOX2I moving( VECTOR2I( 10, 500 ), VECTOR2I( 40, 20 ) );
+
+    auto result = engine.FindSnap( moving, 15, VECTOR2D( 10, 10 ) );
+
+    BOOST_REQUIRE( result.has_value() );
+    BOOST_CHECK_EQUAL( result->Offset.x, -10 );
+    BOOST_CHECK_EQUAL( result->Offset.y, 0 );
+}
+
+
+BOOST_AUTO_TEST_CASE( GridIllegalOffsetIsRejectedNotRounded )
+{
+    ALIGNMENT_GUIDE_ENGINE engine;
+    engine.SetNeighbors( { BOX2I( VECTOR2I( 0, 0 ), VECTOR2I( 100, 50 ) ) } );
+
+    // Left edges would align with delta -3, which is not a multiple of 10.
+    // The engine must NOT round it to 0 and must NOT report a snap on X.
+    BOX2I moving( VECTOR2I( 3, 500 ), VECTOR2I( 40, 20 ) );
+
+    auto result = engine.FindSnap( moving, 15, VECTOR2D( 10, 10 ) );
+
+    // No X candidate is grid-legal and Y is far away, so there is no snap at all.
+    BOOST_CHECK( !result.has_value() );
+}
+
+
+BOOST_AUTO_TEST_CASE( GridLegalCandidateBeatsNearerIllegalOne )
+{
+    ALIGNMENT_GUIDE_ENGINE engine;
+    // A's right edge at 100, B's left edge at 104.
+    engine.SetNeighbors( { BOX2I( VECTOR2I( 0, 0 ), VECTOR2I( 100, 50 ) ),
+                           BOX2I( VECTOR2I( 104, 0 ), VECTOR2I( 50, 50 ) ) } );
+
+    // Moving left edge at 110: B.left gives delta -6 (illegal on a grid of 10),
+    // A.right gives delta -10 (legal).  The legal, farther candidate must win.
+    BOX2I moving( VECTOR2I( 110, 500 ), VECTOR2I( 40, 20 ) );
+
+    auto result = engine.FindSnap( moving, 15, VECTOR2D( 10, 10 ) );
+
+    BOOST_REQUIRE( result.has_value() );
+    BOOST_CHECK_EQUAL( result->Offset.x, -10 );
+}
+
+
 BOOST_AUTO_TEST_SUITE_END()

@@ -20,6 +20,7 @@
 #include <tool/alignment_guide_engine.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdlib>
 
 namespace
@@ -254,7 +255,8 @@ void ALIGNMENT_GUIDE_ENGINE::buildGraphics( const BOX2I& aSnapped, int aAxis,
 
 
 std::optional<ALIGNMENT_GUIDE_ENGINE::RESULT>
-ALIGNMENT_GUIDE_ENGINE::FindSnap( const BOX2I& aMoving, int aSnapRange ) const
+ALIGNMENT_GUIDE_ENGINE::FindSnap( const BOX2I& aMoving, int aSnapRange,
+                                  const std::optional<VECTOR2D>& aGridStep ) const
 {
     RESULT result;
     result.Offset = VECTOR2I( 0, 0 );
@@ -276,6 +278,21 @@ ALIGNMENT_GUIDE_ENGINE::FindSnap( const BOX2I& aMoving, int aSnapRange ) const
 
         for( const SNAP_CANDIDATE& c : candidates )
         {
+            if( aGridStep )
+            {
+                const double g = ( axis == 0 ) ? aGridStep->x : aGridStep->y;
+
+                if( g > 0 )
+                {
+                    const double steps = c.Delta / g;
+
+                    // Reject, never round: a rounded offset would leave the item off the
+                    // alignment the guide line is about to claim.
+                    if( std::abs( steps - std::round( steps ) ) > 1e-6 )
+                        continue;
+                }
+            }
+
             if( std::abs( c.Delta ) > aSnapRange )
                 continue;
 
