@@ -126,6 +126,13 @@ void ALIGNMENT_GUIDE_ENGINE::collectAxisCandidates( const BOX2I& aMoving, int aA
             aOut.push_back( { targetMin - ms.Min, KIND_BETWEEN, i, j, 0 } );
         }
     }
+
+    // Center inside a container (board outline, enclosing bbox)
+    for( size_t i = 0; i < m_containers.size(); ++i )
+    {
+        const SPAN cs = spanOf( m_containers[i], aAxis );
+        aOut.push_back( { cs.Center() - ms.Center(), KIND_CONTAINER, i, i, 0 } );
+    }
 }
 
 
@@ -187,6 +194,17 @@ void ALIGNMENT_GUIDE_ENGINE::buildGraphics( const BOX2I& aSnapped, int aAxis,
 
         pushBadge( aResult, aAxis, crossMid, sLeft.Max, sMov.Min );
         pushBadge( aResult, aAxis, crossMid, sMov.Max, sRight.Min );
+    }
+
+    if( aWinner.Kind == KIND_CONTAINER )
+    {
+        const VECTOR2I center( spanOf( other, 0 ).Center(), spanOf( other, 1 ).Center() );
+
+        // One mark per snap, even if both axes won on the same container.  At most
+        // two marks are ever pushed (one per axis), so comparing back() is a full
+        // duplicate check, not just a neighbouring-element one.
+        if( aResult.CenterMarks.empty() || aResult.CenterMarks.back() != center )
+            aResult.CenterMarks.push_back( center );
     }
 }
 

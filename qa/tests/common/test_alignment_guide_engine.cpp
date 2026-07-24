@@ -269,4 +269,89 @@ BOOST_AUTO_TEST_CASE( CenterBetweenOddLeftoverIsAsymmetric )
 }
 
 
+BOOST_AUTO_TEST_CASE( CenterInContainer )
+{
+    ALIGNMENT_GUIDE_ENGINE engine;
+    // Container (e.g. board outline) x:[0,200], y:[0,100] -> center (100,50)
+    engine.SetContainers( { BOX2I( VECTOR2I( 0, 0 ), VECTOR2I( 200, 100 ) ) } );
+
+    // Moving box 20x10, near-centered: center at (104,52)
+    BOX2I moving( VECTOR2I( 94, 47 ), VECTOR2I( 20, 10 ) );
+
+    auto result = engine.FindSnap( moving, 10 );
+
+    BOOST_REQUIRE( result.has_value() );
+    BOOST_CHECK_EQUAL( result->Offset.x, -4 );
+    BOOST_CHECK_EQUAL( result->Offset.y, -2 );
+    BOOST_REQUIRE_EQUAL( result->CenterMarks.size(), 1 );
+    BOOST_CHECK_EQUAL( result->CenterMarks[0].x, 100 );
+    BOOST_CHECK_EQUAL( result->CenterMarks[0].y, 50 );
+}
+
+
+BOOST_AUTO_TEST_CASE( CenterInContainerSingleAxis )
+{
+    ALIGNMENT_GUIDE_ENGINE engine;
+    // Same container as above: x:[0,200], y:[0,100] -> center (100,50)
+    engine.SetContainers( { BOX2I( VECTOR2I( 0, 0 ), VECTOR2I( 200, 100 ) ) } );
+
+    // Moving box 20x10 at x:[94,114] (centre 104) but y:[500,510] (centre 505).
+    // X centres with delta -4; the Y candidate is 50-505 = -455, far out of range.
+    BOX2I moving( VECTOR2I( 94, 500 ), VECTOR2I( 20, 10 ) );
+
+    auto result = engine.FindSnap( moving, 10 );
+
+    BOOST_REQUIRE( result.has_value() );
+    BOOST_CHECK_EQUAL( result->Offset.x, -4 );
+    BOOST_CHECK_EQUAL( result->Offset.y, 0 );
+
+    // One mark per snap, not per axis: only X won, so still exactly one.
+    BOOST_REQUIRE_EQUAL( result->CenterMarks.size(), 1 );
+    BOOST_CHECK_EQUAL( result->CenterMarks[0].x, 100 );
+    BOOST_CHECK_EQUAL( result->CenterMarks[0].y, 50 );
+    BOOST_CHECK( result->Lines.empty() );
+}
+
+
+BOOST_AUTO_TEST_CASE( ContainerLosesToNearerAlignment )
+{
+    ALIGNMENT_GUIDE_ENGINE engine;
+    // Container x:[0,200], y:[0,100] -> center (100,50)
+    engine.SetContainers( { BOX2I( VECTOR2I( 0, 0 ), VECTOR2I( 200, 100 ) ) } );
+
+    // A single neighbor at x:[96,116], y:[400,440].  Its Y candidates are all
+    // 340+ away, so it can only compete on X.
+    engine.SetNeighbors( { BOX2I( VECTOR2I( 96, 400 ), VECTOR2I( 20, 40 ) ) } );
+
+    // Moving box 20x10 at x:[94,114] (centre 104), y:[47,57] (centre 52).
+    BOX2I moving( VECTOR2I( 94, 47 ), VECTOR2I( 20, 10 ) );
+
+    auto result = engine.FindSnap( moving, 10 );
+
+    BOOST_REQUIRE( result.has_value() );
+
+    // X: the neighbor's left edge (96-94 = +2) beats the container centre
+    // (100-104 = -4).  Three neighbor candidates tie at +2 (min-min, max-max and
+    // centre-centre); the first pushed wins, so the guide ordinate is min = 96.
+    BOOST_CHECK_EQUAL( result->Offset.x, 2 );
+
+    // Y: no neighbor candidate is in range, so the container centre wins (-2).
+    BOOST_CHECK_EQUAL( result->Offset.y, -2 );
+
+    // Snapped box is x:[96,116], y:[45,55].  The X guide spans the cross axis
+    // merged from the snapped box (y:[45,55]) and the neighbor (y:[400,440]).
+    BOOST_REQUIRE_EQUAL( result->Lines.size(), 1 );
+    BOOST_CHECK_EQUAL( result->Lines[0].A.x, 96 );
+    BOOST_CHECK_EQUAL( result->Lines[0].A.y, 45 );
+    BOOST_CHECK_EQUAL( result->Lines[0].B.x, 96 );
+    BOOST_CHECK_EQUAL( result->Lines[0].B.y, 440 );
+
+    // Only the Y axis snapped to the container, so exactly one centre mark.
+    BOOST_REQUIRE_EQUAL( result->CenterMarks.size(), 1 );
+    BOOST_CHECK_EQUAL( result->CenterMarks[0].x, 100 );
+    BOOST_CHECK_EQUAL( result->CenterMarks[0].y, 50 );
+    BOOST_CHECK( result->Badges.empty() );
+}
+
+
 BOOST_AUTO_TEST_SUITE_END()
