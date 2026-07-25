@@ -357,9 +357,16 @@ void EE_GRID_HELPER::CollectAlignmentNeighbors( const SCH_SELECTION& aSkip )
         if( item->Type() != SCH_SYMBOL_T )
             continue;
 
+        SCH_SYMBOL* symbol = static_cast<SCH_SYMBOL*>( item );
+
+        // Power ports are SCH_SYMBOLs too, and a sheet usually has many more of them than
+        // components.  Aligning a chip to a GND flag is never what the user meant.
+        if( symbol->IsPower() )
+            continue;
+
         // Body box only: must match how the moving selection is measured in SCH_MOVE_TOOL,
         // and field text is not what anyone aligns to.
-        const BOX2I box = static_cast<SCH_SYMBOL*>( item )->GetBodyBoundingBox();
+        const BOX2I box = symbol->GetBodyBoundingBox();
 
         // GetBodyBoundingBox() swallows a boost::bad_pointer and returns a default-constructed
         // box.  The engine would take that as a real point box at (0, 0) and pull symbols to it.
