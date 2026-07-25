@@ -157,7 +157,14 @@ private:
                                 std::vector<SNAP_CANDIDATE>& aOut ) const;
 
     void buildGraphics( const BOX2I& aSnapped, int aAxis, const SNAP_CANDIDATE& aWinner,
-                        const std::vector<CLUSTER>& aClusters, RESULT& aResult ) const;
+                        const std::vector<CLUSTER>& aClusters, int aGridStep,
+                        RESULT& aResult ) const;
+
+    /// A badge on every gap in the run that matches aRefGap to within aTolerance -- with three
+    /// or more boxes in line, the equality is a property of all the gaps, not just the pair the
+    /// snap was computed from.
+    void buildGapBadges( const BOX2I& aSnapped, int aAxis, const std::vector<CLUSTER>& aClusters,
+                         int aRefGap, int aTolerance, RESULT& aResult ) const;
 
     /// Guide lines for an alignment snap: one per ordinate the snapped box shares with a
     /// neighbor, each spanning every box sitting on it.

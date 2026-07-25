@@ -190,6 +190,42 @@ void ALIGNMENT_GUIDE_ENGINE::collectAxisCandidates( const BOX2I& aMoving, int aA
 }
 
 
+void ALIGNMENT_GUIDE_ENGINE::buildGapBadges( const BOX2I& aSnapped, int aAxis,
+                                             const std::vector<CLUSTER>& aClusters, int aRefGap,
+                                             int aTolerance, RESULT& aResult ) const
+{
+    const SPAN ms = spanOf( aSnapped, aAxis );
+    const SPAN crossM = spanOf( aSnapped, 1 - aAxis );
+
+    // The moving box takes part in the run like any other box, so it joins the cluster list and
+    // the whole thing is walked in spatial order.
+    std::vector<CLUSTER> run = aClusters;
+    run.push_back( { ms.Min, ms.Max, crossM.Min, crossM.Max } );
+
+    std::sort( run.begin(), run.end(),
+               []( const CLUSTER& a, const CLUSTER& b ) { return a.Min < b.Min; } );
+
+    for( size_t i = 0; i + 1 < run.size(); ++i )
+    {
+        const int gap = run[i + 1].Min - run[i].Max;
+
+        // Every gap that matches gets a badge, not only the two the snap was computed from:
+        // with four boxes in a column, the equality the user asked for is a property of all
+        // three gaps, and showing one of them proves nothing.  Tolerance is the grid step,
+        // since a quantized position can miss exact equality by that much.
+        //
+        // A non-positive gap means the moving box overlaps that cluster, which is not a gap.
+        if( gap <= 0 || std::abs( gap - aRefGap ) > aTolerance )
+            continue;
+
+        const int crossMid = ( std::max( run[i].CrossMin, run[i + 1].CrossMin )
+                               + std::min( run[i].CrossMax, run[i + 1].CrossMax ) ) / 2;
+
+        pushBadge( aResult, aAxis, crossMid, run[i].Max, run[i + 1].Min );
+    }
+}
+
+
 void ALIGNMENT_GUIDE_ENGINE::buildAlignmentLines( const BOX2I& aSnapped, int aAxis, int aWinnerOrd,
                                                   RESULT& aResult ) const
 {
@@ -250,7 +286,7 @@ void ALIGNMENT_GUIDE_ENGINE::buildAlignmentLines( const BOX2I& aSnapped, int aAx
 
 void ALIGNMENT_GUIDE_ENGINE::buildGraphics( const BOX2I& aSnapped, int aAxis,
                                             const SNAP_CANDIDATE&       aWinner,
-                                            const std::vector<CLUSTER>& aClusters,
+                                            const std::vector<CLUSTER>& aClusters, int aGridStep,
                                             RESULT&                     aResult ) const
 {
     // See the header for what N1/N2 index in each case: the convention differs per kind.
@@ -265,28 +301,14 @@ void ALIGNMENT_GUIDE_ENGINE::buildGraphics( const BOX2I& aSnapped, int aAxis,
         // Not named far/near: those are legacy Windows macros.
         const CLUSTER& cFar = aClusters[aWinner.N1];
         const CLUSTER& cNear = aClusters[aWinner.N2];
-        const SPAN     sMov = spanOf( aSnapped, aAxis );
 
-        const SPAN crossMov = spanOf( aSnapped, 1 - aAxis );
-        const int  crossMid = ( std::max( cNear.CrossMin, crossMov.Min )
-                                + std::min( cNear.CrossMax, crossMov.Max ) ) / 2;
+        // The gap the snap was built to reproduce.  Which cluster sits first depends on which
+        // side of the pair the moving box landed, and the generator swaps N1/N2 between those
+        // two directions, so read the order off the geometry rather than off the indices.
+        const int refGap = ( cFar.Max < cNear.Min ) ? ( cNear.Min - cFar.Max )
+                                                    : ( cFar.Min - cNear.Max );
 
-        // Sound only because the gap is strictly positive: "after" puts the moving
-        // box at cNear.Max + gap, "before" puts its *far* edge at cNear.Min - gap, so
-        // the two cases cannot both satisfy this.  A zero gap would collapse them
-        // and send the "after" case down the "before" branch, emitting negative
-        // badges — buildClusters merges touching neighbors to prevent exactly that.
-        if( sMov.Min > cNear.Max ) // moving sits after the pair
-        {
-            pushBadge( aResult, aAxis, crossMid, cFar.Max, cNear.Min );
-            pushBadge( aResult, aAxis, crossMid, cNear.Max, sMov.Min );
-        }
-        else // moving sits before the pair
-        {
-            pushBadge( aResult, aAxis, crossMid, sMov.Max, cNear.Min );
-            pushBadge( aResult, aAxis, crossMid, cNear.Max, cFar.Min );
-        }
-
+        buildGapBadges( aSnapped, aAxis, aClusters, refGap, aGridStep, aResult );
         break;
     }
 
@@ -412,7 +434,11 @@ ALIGNMENT_GUIDE_ENGINE::FindSnap( const BOX2I& aMoving, int aSnapRange,
     for( int axis = 0; axis < 2; ++axis )
     {
         if( winners[axis] )
-            buildGraphics( snapped, axis, *winners[axis], clusters[axis], result );
+        {
+            const int gridStep = aGridStep ? ( ( axis == 0 ) ? aGridStep->x : aGridStep->y ) : 0;
+
+            buildGraphics( snapped, axis, *winners[axis], clusters[axis], gridStep, result );
+        }
     }
 
     return result;

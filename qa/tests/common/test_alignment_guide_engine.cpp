@@ -656,6 +656,61 @@ BOOST_AUTO_TEST_CASE( EqualGapQuantizesOntoGrid )
 }
 
 
+// Four boxes in a column: the equality is a property of all three gaps, so all three must be
+// badged.  Showing only the pair the snap was computed from proves nothing about the rest.
+BOOST_AUTO_TEST_CASE( EqualSpacingBadgesEveryMatchingGap )
+{
+    ALIGNMENT_GUIDE_ENGINE engine;
+
+    // Three neighbours 20 tall at y:[50,70], [100,120] and [150,170] -- gaps of 30 throughout.
+    engine.SetNeighbors( { BOX2I( VECTOR2I( 0, 50 ), VECTOR2I( 20, 20 ) ),
+                           BOX2I( VECTOR2I( 0, 100 ), VECTOR2I( 20, 20 ) ),
+                           BOX2I( VECTOR2I( 0, 150 ), VECTOR2I( 20, 20 ) ) } );
+
+    // Moving box 20 tall just above the run; equal spacing puts its bottom at 50-30 = 20.
+    BOX2I moving( VECTOR2I( 0, 4 ), VECTOR2I( 20, 20 ) );
+
+    auto result = engine.FindSnap( moving, 10 );
+
+    BOOST_REQUIRE( result.has_value() );
+    BOOST_CHECK_EQUAL( result->Offset.y, -4 );
+
+    BOOST_REQUIRE_EQUAL( result->Badges.size(), 3 );
+
+    for( const ALIGNMENT_GUIDE_ENGINE::GAP_BADGE& badge : result->Badges )
+    {
+        BOOST_CHECK( badge.Vertical );
+        BOOST_CHECK_EQUAL( badge.Gap, 30 );
+    }
+
+    // In spatial order, so they read down the column rather than out of the winner's indices.
+    BOOST_CHECK_EQUAL( result->Badges[0].Pos.y, 35 );
+    BOOST_CHECK_EQUAL( result->Badges[1].Pos.y, 85 );
+    BOOST_CHECK_EQUAL( result->Badges[2].Pos.y, 135 );
+}
+
+
+// A gap that does not match must not be badged, or the run claims an equality it does not have.
+BOOST_AUTO_TEST_CASE( EqualSpacingSkipsMismatchedGap )
+{
+    ALIGNMENT_GUIDE_ENGINE engine;
+
+    // Gaps of 30 then 45: only the first belongs to the equally-spaced run.
+    engine.SetNeighbors( { BOX2I( VECTOR2I( 0, 50 ), VECTOR2I( 20, 20 ) ),
+                           BOX2I( VECTOR2I( 0, 100 ), VECTOR2I( 20, 20 ) ),
+                           BOX2I( VECTOR2I( 0, 165 ), VECTOR2I( 20, 20 ) ) } );
+
+    BOX2I moving( VECTOR2I( 0, 4 ), VECTOR2I( 20, 20 ) );
+
+    auto result = engine.FindSnap( moving, 10 );
+
+    BOOST_REQUIRE( result.has_value() );
+    BOOST_REQUIRE_EQUAL( result->Badges.size(), 2 );
+    BOOST_CHECK_EQUAL( result->Badges[0].Gap, 30 );
+    BOOST_CHECK_EQUAL( result->Badges[1].Gap, 30 );
+}
+
+
 // The quantized position must stay on its own side of the gap.  A gap narrower than half a
 // step would be jumped clean over, emitting a negative badge.
 BOOST_AUTO_TEST_CASE( EqualGapSkipsPairsTooTightToQuantize )

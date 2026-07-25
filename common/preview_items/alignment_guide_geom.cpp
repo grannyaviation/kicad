@@ -19,6 +19,8 @@
 
 #include "preview_items/alignment_guide_geom.h"
 
+#include <algorithm>
+
 #include <font/font.h>
 #include <gal/graphics_abstraction_layer.h>
 #include <geometry/geometry_utils.h>
@@ -124,6 +126,14 @@ void ALIGNMENT_GUIDE_GEOM::ViewDraw( int aLayer, VIEW* aView ) const
     const int                       padding = aView->ToWorld( 3 );
     const int                       tick = aView->ToWorld( 4 );
 
+    // A reference string, not the number itself, sets the pill size.  Sizing it to the text
+    // makes "8.89" and "10.16" render as visibly different badges, which reads as two kinds of
+    // annotation rather than as two numbers.  Longer numbers still grow it instead of
+    // overflowing.
+    const VECTOR2I refExtents = font->StringBoundaryLimits( wxT( "00.00" ), textDims.GlyphSize,
+                                                            textDims.StrokeWidth, false, false,
+                                                            KIFONT::METRICS::Default() );
+
     TEXT_ATTRIBUTES textAttrs;
     textAttrs.m_Size = textDims.GlyphSize;
     textAttrs.m_StrokeWidth = textDims.StrokeWidth;
@@ -159,14 +169,15 @@ void ALIGNMENT_GUIDE_GEOM::ViewDraw( int aLayer, VIEW* aView ) const
         // A filled rounded segment as thick as the text is a pill-shaped badge in one call.
         // The round caps supply the horizontal padding.  Drawn after the line so it masks the
         // middle of it, as a dimension label does.
-        const VECTOR2I halfLen( extents.x / 2, 0 );
+        const VECTOR2I halfLen( std::max( extents.x, refExtents.x ) / 2, 0 );
+        const int      thickness = std::max( extents.y, refExtents.y ) + 2 * padding;
 
         // Opaque, unlike the lines: the badge sits on top of the reference designator more
         // often than not, and at 0.9 the designator reads straight through the number.
         gal.SetIsStroke( false );
         gal.SetIsFill( true );
         gal.SetFillColor( m_color.WithAlpha( 1.0 ) );
-        gal.DrawSegment( badge.Pos - halfLen, badge.Pos + halfLen, extents.y + 2 * padding );
+        gal.DrawSegment( badge.Pos - halfLen, badge.Pos + halfLen, thickness );
 
         // Same trick RULER_ITEM uses for its drop shadows: black on light, white on dark.
         gal.SetIsFill( false );
