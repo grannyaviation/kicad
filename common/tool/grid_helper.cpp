@@ -36,8 +36,10 @@
 #include <gal/painter.h>
 
 
-GRID_HELPER::GRID_HELPER() :
-        m_toolMgr( nullptr ), m_snapManager( m_constructionGeomPreview )
+GRID_HELPER::GRID_HELPER( const EDA_IU_SCALE& aIuScale ) :
+        m_alignGuidePreview( aIuScale ),
+        m_toolMgr( nullptr ),
+        m_snapManager( m_constructionGeomPreview )
 {
     m_maskTypes = ALL;
     m_enableSnap = true;
@@ -52,8 +54,9 @@ GRID_HELPER::GRID_HELPER() :
 }
 
 
-GRID_HELPER::GRID_HELPER( TOOL_MANAGER* aToolMgr, int aConstructionLayer ) :
-        GRID_HELPER()
+GRID_HELPER::GRID_HELPER( TOOL_MANAGER* aToolMgr, int aConstructionLayer,
+                          const EDA_IU_SCALE& aIuScale ) :
+        GRID_HELPER( aIuScale )
 {
     m_toolMgr = aToolMgr;
 
@@ -136,6 +139,49 @@ void GRID_HELPER::showConstructionGeometry( bool aShow )
 {
     if( m_toolMgr )
         m_toolMgr->GetView()->SetVisible( &m_constructionGeomPreview, aShow );
+}
+
+
+void GRID_HELPER::clearAlignmentGuides()
+{
+    // Guarded so the common case (nothing showing) costs no VIEW::Update.
+    if( !m_toolMgr || !m_alignGuidePreview.HasGuides() )
+        return;
+
+    m_alignGuidePreview.ClearGuides();
+    m_toolMgr->GetView()->Update( &m_alignGuidePreview, KIGFX::GEOMETRY );
+}
+
+
+std::optional<VECTOR2I> GRID_HELPER::snapToAlignmentGuides( const VECTOR2I& aPos, int aSnapRange,
+                                                            const std::optional<VECTOR2I>& aGridStep )
+{
+    // Only during an active move (context set by the move tool) and only when snapping is
+    // enabled at all (Shift suppresses).
+    if( !m_toolMgr || !m_moveContext || !m_enableSnap )
+        return std::nullopt;
+
+    ALIGNMENT_GUIDE_ENGINE& engine = m_snapManager.GetAlignmentEngine();
+
+    if( !engine.HasInputs() )
+        return std::nullopt;
+
+    BOX2I movingBox = m_moveContext->OriginalBBox;
+    movingBox.Move( aPos - m_moveContext->OriginalCursor );
+
+    std::optional<ALIGNMENT_GUIDE_ENGINE::RESULT> guide =
+            engine.FindSnap( movingBox, aSnapRange, aGridStep );
+
+    if( !guide )
+        return std::nullopt;
+
+    wxLogTrace( traceSnap, "  RETURNING alignment guide snap: (%d, %d)", aPos.x + guide->Offset.x,
+                aPos.y + guide->Offset.y );
+
+    m_alignGuidePreview.SetGuides( *guide );
+    m_toolMgr->GetView()->Update( &m_alignGuidePreview, KIGFX::GEOMETRY );
+
+    return aPos + guide->Offset;
 }
 
 

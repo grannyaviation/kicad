@@ -147,14 +147,14 @@ std::optional<int64_t> FindSquareDistanceToItem( const BOARD_ITEM& item, const V
 } // namespace
 
 PCB_GRID_HELPER::PCB_GRID_HELPER() :
-        GRID_HELPER(),
+        GRID_HELPER( pcbIUScale ),
         m_magneticSettings( nullptr )
 {
 }
 
 
 PCB_GRID_HELPER::PCB_GRID_HELPER( TOOL_MANAGER* aToolMgr, MAGNETIC_SETTINGS* aMagneticSettings ) :
-        GRID_HELPER( aToolMgr, LAYER_ANCHOR ),
+        GRID_HELPER( aToolMgr, LAYER_ANCHOR, pcbIUScale ),
         m_magneticSettings( aMagneticSettings )
 {
     if( !m_toolMgr )
@@ -702,11 +702,7 @@ VECTOR2I PCB_GRID_HELPER::BestSnapAnchor( const VECTOR2I& aOrigin, const LSET& a
 
     // Drop any guides from the previous call up front.  Every exit from this function bar the
     // alignment-guide one below means no guide is showing, and several of them return early.
-    if( m_alignGuidePreview.HasGuides() )
-    {
-        m_alignGuidePreview.ClearGuides();
-        m_toolMgr->GetView()->Update( &m_alignGuidePreview, KIGFX::GEOMETRY );
-    }
+    clearAlignmentGuides();
 
     const std::vector<BOARD_ITEM*> visibleItems = queryVisible( visibilityHorizon, aSkip );
     computeAnchors( visibleItems, aOrigin, false, nullptr, &aLayers, false );
@@ -1016,32 +1012,15 @@ VECTOR2I PCB_GRID_HELPER::BestSnapAnchor( const VECTOR2I& aOrigin, const LSET& a
 
     m_toolMgr->GetView()->SetVisible( &m_viewSnapPoint, false );
 
-    // Smart alignment guides: only during an active move (context set by the move tool) and
-    // only when snapping is enabled at all (Shift suppresses).  This sits below every item
-    // snap above and above the grid fallback, so priority is anchor > guide > grid.  It runs
-    // after the teardown above so a guide snap doesn't leave a stale snap marker or snap line.
-    if( m_moveContext && m_enableSnap )
-    {
-        ALIGNMENT_GUIDE_ENGINE& engine = getSnapManager().GetAlignmentEngine();
-
-        if( engine.HasInputs() )
-        {
-            // Moving bbox at the current (unsnapped) cursor position
-            BOX2I movingBox = m_moveContext->OriginalBBox;
-            movingBox.Move( aOrigin - m_moveContext->OriginalCursor );
-
-            if( auto guide = engine.FindSnap( movingBox, snapRange ) )
-            {
-                wxLogTrace( traceSnap, "  RETURNING alignment guide snap: (%d, %d)",
-                            aOrigin.x + guide->Offset.x, aOrigin.y + guide->Offset.y );
-
-                m_alignGuidePreview.SetGuides( *guide );
-                m_toolMgr->GetView()->Update( &m_alignGuidePreview, KIGFX::GEOMETRY );
-
-                return aOrigin + guide->Offset;
-            }
-        }
-    }
+    // Smart alignment guides sit below every item snap above and above the grid fallback, so
+    // priority is anchor > guide > grid.  The query runs after the teardown above so a guide
+    // snap doesn't leave a stale snap marker or snap line.
+    //
+    // aOrigin, i.e. the raw cursor: the moving bbox is extrapolated from the same reference
+    // the move tool captured OriginalCursor at.  No grid step either -- PCB items have no
+    // grid obligation, and the snap radius here is zoom-dependent rather than grid-derived.
+    if( std::optional<VECTOR2I> alignSnap = snapToAlignmentGuides( aOrigin, snapRange ) )
+        return *alignSnap;
 
     wxLogTrace( traceSnap, "  RETURNING grid snap: (%d, %d)", nearestGrid.x, nearestGrid.y );
 

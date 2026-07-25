@@ -53,8 +53,14 @@ class GRID_HELPER
 {
     friend void TEST_CLEAR_ANCHORS( GRID_HELPER& helper );
 public:
-    GRID_HELPER();
-    GRID_HELPER( TOOL_MANAGER* aToolMgr, int aConstructionLayer );
+    /**
+     * @param aIuScale the owning editor's internal-unit scale (pcbIUScale, schIUScale, ...).
+     *                 Only the alignment-guide badges read it, but there is no sane default:
+     *                 a wrong scale renders a wrong number rather than failing, so every
+     *                 subclass names its own.
+     */
+    GRID_HELPER( const EDA_IU_SCALE& aIuScale );
+    GRID_HELPER( TOOL_MANAGER* aToolMgr, int aConstructionLayer, const EDA_IU_SCALE& aIuScale );
     virtual ~GRID_HELPER();
 
     VECTOR2I GetGrid() const;
@@ -90,6 +96,13 @@ public:
         m_snapManager.GetAlignmentEngine().Clear();
         m_alignGuidePreview.ClearGuides();
     }
+
+    /// Remove any painted alignment guides.  Cheap no-op when none are showing.
+    ///
+    /// Public because the move tools have to call it too: any path that repositions the
+    /// selection without going through BestSnapAnchor (e.g. the arrow-key nudge in
+    /// SCH_MOVE_TOOL) would otherwise leave the guides painted at a stale ordinate.
+    void clearAlignmentGuides();
 
     // Manual setters used when no TOOL_MANAGER/View is available (e.g. in tests)
     void SetGridSize( const VECTOR2D& aGrid ) { m_manualGrid = aGrid; }
@@ -246,6 +259,21 @@ protected:
 
     VECTOR2I computeNearest( const VECTOR2I& aPoint, const VECTOR2I& aGrid,
                              const VECTOR2I& aOffset ) const;
+
+    /**
+     * Offer an alignment-guide snap for a move in progress.
+     *
+     * @param aPos       the position the caller would otherwise return; the moving box is
+     *                   extrapolated from it, so it must be the same reference the move
+     *                   tool's OriginalCursor was captured at
+     * @param aSnapRange maximum snap distance in world units
+     * @param aGridStep  when set, only offsets that are whole multiples are accepted;
+     *                   pass std::nullopt when the caller's position is not grid-aligned
+     * @return the snapped position, or std::nullopt if no guide applies
+     */
+    std::optional<VECTOR2I> snapToAlignmentGuides( const VECTOR2I& aPos, int aSnapRange,
+                                                   const std::optional<VECTOR2I>& aGridStep
+                                                           = std::nullopt );
 
 protected:
     void showConstructionGeometry( bool aShow );

@@ -22,6 +22,7 @@
 #include "tool/edit_constraints.h"
 #include "tool/edit_points.h"
 
+#include <base_units.h>
 #include <geometry/seg.h>
 #include <trigo.h>
 
@@ -247,7 +248,9 @@ void EC_CONVERGING::applyConverging( EDIT_LINE& aHandle )
     {
         if( m_colinearConstraint )
         {
-            GRID_HELPER dummyGrid;
+            // unityScale: this helper only satisfies Apply()'s signature -- it has no view,
+            // so it never draws alignment guides and the scale is never read.
+            GRID_HELPER dummyGrid( unityScale );
             m_colinearConstraint->Apply( origin, dummyGrid );
             m_colinearConstraint->Apply( end, dummyGrid );
         }

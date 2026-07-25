@@ -20,6 +20,9 @@
 
 #include <tool/grid_helper.h>
 
+// unityScale: GRID_HELPER wants the owning editor's IU scale for its alignment-guide badges.
+// These headless helpers have no VIEW, so nothing they own is ever drawn and the scale is
+// never read -- but the constructor has no default, deliberately, so it has to be named.
 void TEST_CLEAR_ANCHORS( GRID_HELPER& helper )
 {
     helper.clearAnchors();
@@ -29,7 +32,7 @@ BOOST_AUTO_TEST_SUITE( GridHelperTest )
 
 BOOST_AUTO_TEST_CASE( DefaultConstructor )
 {
-    GRID_HELPER helper;
+    GRID_HELPER helper( unityScale );
 
     // Test default state
     BOOST_CHECK( helper.GetSnap() );
@@ -51,7 +54,7 @@ BOOST_AUTO_TEST_CASE( DefaultConstructor )
 
 BOOST_AUTO_TEST_CASE( AlignBasic )
 {
-    GRID_HELPER helper;
+    GRID_HELPER helper( unityScale );
     helper.SetGridSize( VECTOR2D( 100, 100 ) );
     helper.SetOrigin( VECTOR2I( 0, 0 ) );
     helper.SetGridSnapping( true );
@@ -74,7 +77,7 @@ BOOST_AUTO_TEST_CASE( AlignBasic )
 
 BOOST_AUTO_TEST_CASE( AlignGridWithCustomGrid )
 {
-    GRID_HELPER helper;
+    GRID_HELPER helper( unityScale );
     helper.SetGridSize( VECTOR2D( 50, 50 ) );
     helper.SetOrigin( VECTOR2I( 0, 0 ) );
     helper.SetGridSnapping( true );
@@ -91,7 +94,7 @@ BOOST_AUTO_TEST_CASE( AlignGridWithCustomGrid )
 
 BOOST_AUTO_TEST_CASE( AlignWithOriginOffset )
 {
-    GRID_HELPER helper;
+    GRID_HELPER helper( unityScale );
     helper.SetGridSize( VECTOR2D( 100, 100 ) );
     helper.SetOrigin( VECTOR2I( 25, 25 ) );
     helper.SetGridSnapping( true );
@@ -104,7 +107,7 @@ BOOST_AUTO_TEST_CASE( AlignWithOriginOffset )
 
 BOOST_AUTO_TEST_CASE( AlignWithAuxiliaryAxes )
 {
-    GRID_HELPER helper;
+    GRID_HELPER helper( unityScale );
     helper.SetGridSize( VECTOR2D( 100, 100 ) );
     helper.SetOrigin( VECTOR2I( 0, 0 ) );
     helper.SetGridSnapping( true );
@@ -131,7 +134,7 @@ BOOST_AUTO_TEST_CASE( AlignWithAuxiliaryAxes )
 
 BOOST_AUTO_TEST_CASE( GridSnappingDisabled )
 {
-    GRID_HELPER helper;
+    GRID_HELPER helper( unityScale );
     helper.SetGridSize( VECTOR2D( 100, 100 ) );
     helper.SetOrigin( VECTOR2I( 0, 0 ) );
     helper.SetGridSnapping( false );  // Disable grid snapping
@@ -150,7 +153,7 @@ BOOST_AUTO_TEST_CASE( GridSnappingDisabled )
 
 BOOST_AUTO_TEST_CASE( UseGridDisabled )
 {
-    GRID_HELPER helper;
+    GRID_HELPER helper( unityScale );
     helper.SetGridSize( VECTOR2D( 100, 100 ) );
     helper.SetOrigin( VECTOR2I( 0, 0 ) );
     helper.SetGridSnapping( true );
@@ -165,7 +168,7 @@ BOOST_AUTO_TEST_CASE( UseGridDisabled )
 
 BOOST_AUTO_TEST_CASE( AsymmetricGrid )
 {
-    GRID_HELPER helper;
+    GRID_HELPER helper( unityScale );
     helper.SetGridSize( VECTOR2D( 25, 75 ) );  // Different X and Y grid sizes
     helper.SetOrigin( VECTOR2I( 0, 0 ) );
     helper.SetGridSnapping( true );
@@ -181,7 +184,7 @@ BOOST_AUTO_TEST_CASE( AsymmetricGrid )
 
 BOOST_AUTO_TEST_CASE( SnapFlags )
 {
-    GRID_HELPER helper;
+    GRID_HELPER helper( unityScale );
 
     // Test snap flag getters/setters
     BOOST_CHECK( helper.GetSnap() );  // Default should be true
@@ -204,7 +207,7 @@ BOOST_AUTO_TEST_CASE( SnapFlags )
 
 BOOST_AUTO_TEST_CASE( MaskOperations )
 {
-    GRID_HELPER helper;
+    GRID_HELPER helper( unityScale );
 
     // Test mask operations
     helper.SetMask( GRID_HELPER::CORNER | GRID_HELPER::OUTLINE );
@@ -217,7 +220,7 @@ BOOST_AUTO_TEST_CASE( MaskOperations )
 
 BOOST_AUTO_TEST_CASE( SkipPoint )
 {
-    GRID_HELPER helper;
+    GRID_HELPER helper( unityScale );
 
     // Test skip point operations
     helper.SetSkipPoint( VECTOR2I( 100, 100 ) );
@@ -228,7 +231,7 @@ BOOST_AUTO_TEST_CASE( SkipPoint )
 
 BOOST_AUTO_TEST_CASE( GridTypeAlignment )
 {
-    GRID_HELPER helper;
+    GRID_HELPER helper( unityScale );
     helper.SetGridSize( VECTOR2D( 100, 100 ) );
     helper.SetOrigin( VECTOR2I( 0, 0 ) );
     helper.SetGridSnapping( true );
@@ -245,7 +248,7 @@ BOOST_AUTO_TEST_CASE( GridTypeAlignment )
 
 BOOST_AUTO_TEST_CASE( EdgeCases )
 {
-    GRID_HELPER helper;
+    GRID_HELPER helper( unityScale );
     helper.SetGridSize( VECTOR2D( 1, 1 ) );  // Very small grid
     helper.SetOrigin( VECTOR2I( 0, 0 ) );
     helper.SetGridSnapping( true );
@@ -269,7 +272,7 @@ BOOST_AUTO_TEST_CASE( EdgeCases )
 
 BOOST_AUTO_TEST_CASE( GetGridSize )
 {
-    GRID_HELPER helper;
+    GRID_HELPER helper( unityScale );
 
     // Test GetGridSize with different grid types
     helper.SetGridSize( VECTOR2D( 50, 75 ) );
@@ -286,7 +289,7 @@ BOOST_AUTO_TEST_CASE( GetGridSize )
 
 BOOST_AUTO_TEST_CASE( VisibleGrid )
 {
-    GRID_HELPER helper;
+    GRID_HELPER helper( unityScale );
     helper.SetVisibleGridSize( VECTOR2D( 25, 35 ) );
 
     VECTOR2D visibleGrid = helper.GetVisibleGrid();
@@ -296,7 +299,7 @@ BOOST_AUTO_TEST_CASE( VisibleGrid )
 
 BOOST_AUTO_TEST_CASE( SnapPointManagement )
 {
-    GRID_HELPER helper;
+    GRID_HELPER helper( unityScale );
 
     // Initially should have no snapped point
     auto snappedPoint = helper.GetSnappedPoint();
@@ -316,7 +319,7 @@ BOOST_AUTO_TEST_CASE( AlignGridWithNonPageOrigin )
     // When grid sizes go through VECTOR2D, floating-point imprecision in the
     // VECTOR2D -> VECTOR2I truncation could produce incorrect grid positions.
 
-    GRID_HELPER helper;
+    GRID_HELPER helper( unityScale );
     helper.SetGridSnapping( true );
 
     // PCB IU_PER_MM = 1000000 (nanometers)
@@ -425,7 +428,7 @@ BOOST_AUTO_TEST_CASE( MovementFromOffGridAnchor )
     // should be the actual anchor (not grid-snapped). The final position must still land
     // exactly on-grid because AlignGrid now rounds VECTOR2D grid parameters correctly.
 
-    GRID_HELPER helper;
+    GRID_HELPER helper( unityScale );
     helper.SetGridSnapping( true );
 
     constexpr int IU_PER_MM = 1000000;

@@ -30,10 +30,11 @@
 using namespace KIGFX;
 
 
-ALIGNMENT_GUIDE_GEOM::ALIGNMENT_GUIDE_GEOM() :
+ALIGNMENT_GUIDE_GEOM::ALIGNMENT_GUIDE_GEOM( const EDA_IU_SCALE& aIuScale ) :
         EDA_ITEM( nullptr, NOT_USED ), // Never added to a BOARD/SCHEMATIC so it needs no type
         m_hasGuides( false ),
-        m_color( COLOR4D( 0.9, 0.2, 0.6, 0.9 ) )
+        m_color( COLOR4D( 0.9, 0.2, 0.6, 0.9 ) ),
+        m_iuScale( aIuScale )
 {
 }
 
@@ -128,9 +129,11 @@ void ALIGNMENT_GUIDE_GEOM::ViewDraw( int aLayer, VIEW* aView ) const
 
     for( const ALIGNMENT_GUIDE_ENGINE::GAP_BADGE& badge : m_guides.Badges )
     {
-        // ponytail: mm hardcoded; upgrade path = pass an EDA_IU_SCALE + EDA_UNITS from the
-        // frame when other editors (mils users) come on board.
-        const wxString text = wxString::Format( wxT( "%.2f" ), badge.Gap / 1e6 );
+        // ponytail: always mm, whatever the user's display units are; upgrade path = also
+        // take an EDA_UNITS from the frame, as RULER_ITEM does.  The *scale* is not a
+        // simplification though -- it comes from the owning editor, or a schematic badge
+        // would read 100x small.
+        const wxString text = wxString::Format( wxT( "%.2f" ), badge.Gap / m_iuScale.IU_PER_MM );
         const VECTOR2I extents = font->StringBoundaryLimits( text, textDims.GlyphSize,
                                                              textDims.StrokeWidth, false, false,
                                                              KIFONT::METRICS::Default() );

@@ -20,6 +20,7 @@
 
 #include <vector>
 
+#include <base_units.h>
 #include <eda_item.h>
 #include <gal/color4d.h>
 #include <tool/alignment_guide_engine.h>
@@ -35,7 +36,13 @@ namespace KIGFX
 class ALIGNMENT_GUIDE_GEOM : public EDA_ITEM
 {
 public:
-    ALIGNMENT_GUIDE_GEOM();
+    /**
+     * @param aIuScale the internal-unit scale of the editor that owns this item; the gap
+     *                 badges are meaningless without it (1e6 IU/mm on a board, 1e4 in the
+     *                 schematic).  No default on purpose -- a wrong scale is a silently
+     *                 wrong number on screen, so every owner has to name its own.
+     */
+    ALIGNMENT_GUIDE_GEOM( const EDA_IU_SCALE& aIuScale );
 
     wxString GetClass() const override { return wxT( "ALIGNMENT_GUIDE_GEOM" ); }
 
@@ -59,6 +66,7 @@ private:
     ALIGNMENT_GUIDE_ENGINE::RESULT m_guides;
     bool                           m_hasGuides;
     COLOR4D                        m_color;
+    const EDA_IU_SCALE&            m_iuScale;
 };
 
 } // namespace KIGFX
