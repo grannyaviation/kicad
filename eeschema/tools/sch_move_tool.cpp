@@ -916,10 +916,18 @@ bool SCH_MOVE_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, SCH_COMMIT* aComm
                 m_cursor = grid.BestSnapAnchor( controls->GetCursorPosition( false ), snapLayer, selection );
             }
 
+            VECTOR2I unclamped = m_cursor;
+
             if( axisLock == AXIS_LOCK::HORIZONTAL )
                 m_cursor.y = prevPos.y;
             else if( axisLock == AXIS_LOCK::VERTICAL )
                 m_cursor.x = prevPos.x;
+
+            // The guide was scored against the unclamped cursor; if the lock moved it, the
+            // selection never reaches the ordinate the guide is drawn at.  This also drops a
+            // legitimate guide on the free axis -- better than painting a line the items miss.
+            if( m_cursor != unclamped )
+                grid.clearAlignmentGuides();
 
             // Find potential target sheet for dropping.  This relocation is only meaningful for a
             // plain move; drag/break/slice reshape existing connections in place and must never
