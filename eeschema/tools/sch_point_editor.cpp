@@ -1173,6 +1173,9 @@ int SCH_POINT_EDITOR::Main( const TOOL_EVENT& aEvent )
     updateEditedPoint( aEvent );
     bool inDrag = false;
 
+    // The neighbour sweep walks the whole viewport, so it runs once per resize, not per motion.
+    bool collectGuideNeighbors = true;
+
     // Main loop: keep receiving events
     while( TOOL_EVENT* evt = Wait() )
     {
@@ -1220,6 +1223,17 @@ int SCH_POINT_EDITOR::Main( const TOOL_EVENT& aEvent )
 
             cursorPos = grid->Align( controls->GetMousePosition(),
                                      GRID_HELPER_GRIDS::GRID_GRAPHICS );
+
+            // Smart alignment guides while resizing a sheet: line the dragged corner up with
+            // the sheets and symbols around it.  Sheets only for now -- a shape's handle has
+            // no relationship to anything else on the sheet worth guiding to.
+            if( item->Type() == SCH_SHEET_T )
+            {
+                cursorPos = grid->AlignPointToGuides(
+                        cursorPos, collectGuideNeighbors ? &selection : nullptr );
+                collectGuideNeighbors = false;
+            }
+
             controls->ForceCursorPosition( true, cursorPos );
 
             m_editedPoint->SetPosition( controls->GetCursorPosition( snap ) );

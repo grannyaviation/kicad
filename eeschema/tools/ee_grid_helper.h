@@ -80,6 +80,22 @@ public:
      */
     void CollectAlignmentNeighbors( const SCH_SELECTION& aSkip );
 
+    /**
+     * Snap a single dragged point to the alignment guides, painting them, and return where it
+     * should go.  Returns aPoint unchanged when nothing is in range.
+     *
+     * For resize handles, where the moving geometry is one corner rather than a whole body.
+     * Unlike BestSnapAnchor() this arbitrates nothing: the caller has no competing snap of its
+     * own, so the guide either wins or nothing does.
+     *
+     * @param aPoint the grid-aligned position the handle would take with no guides
+     * @param aCollectSkip when set, (re)collect the neighbours first, excluding these items.
+     *                     Pass it on the first motion of a resize only: the sweep walks the
+     *                     whole viewport, and it has to run after the move context is set.
+     */
+    VECTOR2I AlignPointToGuides( const VECTOR2I&      aPoint,
+                                 const SCH_SELECTION* aCollectSkip = nullptr );
+
 private:
     std::set<SCH_ITEM*> queryVisible( const BOX2I& aArea, const SCH_SELECTION& aSkipList ) const;
 

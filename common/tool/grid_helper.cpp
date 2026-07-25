@@ -192,8 +192,11 @@ GRID_HELPER::computeAlignmentGuideSnap( const VECTOR2I& aPos, int aSnapRange,
     if( !guide )
         return std::nullopt;
 
-    wxLogTrace( traceSnap, "  alignment guide snap available: (%d, %d)", aPos.x + guide->Offset.x,
-                aPos.y + guide->Offset.y );
+    // "guides" plural, like the lines above, so one grep catches the misses and the hits.
+    // Reading only the misses makes every drag look broken.
+    wxLogTrace( traceSnap, "  alignment guides: snap available (%d, %d) offset (%d, %d)",
+                aPos.x + guide->Offset.x, aPos.y + guide->Offset.y, guide->Offset.x,
+                guide->Offset.y );
 
     return GUIDE_SNAP{ aPos + guide->Offset, std::move( *guide ) };
 }

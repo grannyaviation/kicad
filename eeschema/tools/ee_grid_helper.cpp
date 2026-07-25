@@ -32,6 +32,8 @@
 #include <sch_table.h>
 #include <sch_tablecell.h>
 #include <sch_painter.h>
+#include <trace_helpers.h>
+#include <wx/log.h>
 #include <tool/tool_manager.h>
 #include <sch_tool_base.h>
 #include <settings/app_settings.h>
@@ -356,6 +358,43 @@ SCH_ITEM* EE_GRID_HELPER::GetSnapped() const
 }
 
 
+VECTOR2I EE_GRID_HELPER::AlignPointToGuides( const VECTOR2I&      aPoint,
+                                             const SCH_SELECTION* aCollectSkip )
+{
+    // A zero-size box at the handle: its min, max and center all collapse onto the point, so
+    // every alignment candidate the engine builds reduces to "line this corner up with a
+    // neighbour edge" -- which is the whole of what a resize wants.  Re-set every motion
+    // rather than once, since the handle is the cursor and the two never drift apart.
+    SetMoveContext( BOX2I( aPoint, VECTOR2I( 0, 0 ) ), aPoint, true );
+
+    // Must follow SetMoveContext(): the sweep bails without a move context, and sorts
+    // neighbours by distance from it.
+    if( aCollectSkip )
+        CollectAlignmentNeighbors( *aCollectSkip );
+
+    const VECTOR2D gridSize = GetGridSize( GRID_HELPER_GRIDS::GRID_GRAPHICS );
+
+    // Same rules as a symbol drag: offsets must be whole grid steps or a resized sheet drags
+    // its pins off grid, and the reach has to be at least a couple of steps to be usable on a
+    // 100 mil grid.  aPoint is already grid-aligned by the caller, which FindSnap requires.
+    std::optional<VECTOR2I> gridStep;
+
+    if( canUseGrid() )
+        gridStep = KiROUND( gridSize );
+
+    const int range = 2 * KiROUND( std::max( gridSize.x, gridSize.y ) );
+
+    if( std::optional<GUIDE_SNAP> snap = computeAlignmentGuideSnap( aPoint, range, gridStep ) )
+    {
+        showAlignmentGuides( *snap );
+        return snap->Position;
+    }
+
+    clearAlignmentGuides();
+    return aPoint;
+}
+
+
 std::optional<BOX2I> EE_GRID_HELPER::GetAlignmentBox( const EDA_ITEM* aItem )
 {
     switch( aItem->Type() )
@@ -444,6 +483,17 @@ void EE_GRID_HELPER::CollectAlignmentNeighbors( const SCH_SELECTION& aSkip )
                        [&]( const BOX2I& a, const BOX2I& b )
                        { return sortKey( a ) < sortKey( b ); } );
     boxes.resize( keep );
+
+    if( wxLog::IsAllowedTraceMask( traceSnap ) )
+    {
+        wxLogTrace( traceSnap, "  alignment guides: collected %zu neighbours", boxes.size() );
+
+        for( const BOX2I& box : boxes )
+        {
+            wxLogTrace( traceSnap, "  alignment guides: neighbour (%d,%d)-(%d,%d)", box.GetLeft(),
+                        box.GetTop(), box.GetRight(), box.GetBottom() );
+        }
+    }
 
     engine.SetNeighbors( std::move( boxes ) );
 }
