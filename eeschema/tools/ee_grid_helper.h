@@ -22,6 +22,8 @@
 #ifndef EE_GRID_HELPER_H
 #define EE_GRID_HELPER_H
 
+#include <optional>
+
 #include <math/vector2d.h>
 #include <origin_viewitem.h>
 #include <tool/grid_helper.h>
@@ -61,7 +63,17 @@ public:
                              const SCH_SELECTION& aSkip = {} );
 
     /**
-     * Collect neighbour symbol bounding boxes for smart alignment guides.
+     * The box smart alignment guides measure an item by, or nullopt if the item is not
+     * something anyone aligns to.
+     *
+     * Single source of truth on purpose: the moving selection and the neighbour set must be
+     * measured by the same rule, or every guide sits offset by whatever the two rules disagree
+     * about (field text, a stroke halo).
+     */
+    static std::optional<BOX2I> GetAlignmentBox( const EDA_ITEM* aItem );
+
+    /**
+     * Collect neighbour bounding boxes for smart alignment guides.
      * Call once at drag start, after SetMoveContext().
      *
      * @param aSkip the items being dragged (excluded from the neighbour set)

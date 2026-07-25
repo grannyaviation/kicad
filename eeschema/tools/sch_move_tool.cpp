@@ -819,7 +819,8 @@ bool SCH_MOVE_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, SCH_COMMIT* aComm
             if( updateBBox )
             {
                 // Measure the moving selection exactly as CollectAlignmentNeighbors()
-                // measures neighbours, or the guides align edges the user cannot see.
+                // measures neighbours -- hence the shared GetAlignmentBox() -- or the guides
+                // align edges the user cannot see.
                 // NOTE: deliberately not SCH_SELECTION::GetBoundingBox() -- that merges
                 // symbols via GetBoundingBox(), i.e. body + pins + visible fields, so the
                 // two sides would disagree by the field/pin halo and every guide would sit
@@ -827,29 +828,28 @@ bool SCH_MOVE_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, SCH_COMMIT* aComm
                 BOX2I guideBBox;
 
                 for( EDA_ITEM* item : selection )
-                {
-                    if( item->Type() == SCH_SYMBOL_T )
-                        guideBBox.Merge( static_cast<SCH_SYMBOL*>( item )->GetBodyBoundingBox() );
-                    else
-                        guideBBox.Merge( item->GetBoundingBox() );
-                }
+                    guideBBox.Merge( EE_GRID_HELPER::GetAlignmentBox( item )
+                                             .value_or( item->GetBoundingBox() ) );
 
                 // prevPos, not m_cursor: the items sit where prevPos put them, this event's
                 // movement is only applied further down.  That holds mid-move too -- a rotate
                 // transforms the items in place and leaves the drag reference where it was, so
                 // prevPos is still the cursor the fresh box belongs to.  The engine
                 // extrapolates the moving box from this pair, so the two must agree.
-                // Guides outrank pin/wire-end snapping only when the whole selection is
-                // symbols.  A dragged wire end must keep snapping to pins, and a mixed
-                // selection contains one, so both fall back to anchor > guide.
-                const bool allSymbols = !selection.Empty()
-                                        && std::all_of( selection.begin(), selection.end(),
-                                                        []( const EDA_ITEM* aItem )
-                                                        {
-                                                            return aItem->Type() == SCH_SYMBOL_T;
-                                                        } );
+                // Guides outrank pin/wire-end snapping only when everything being moved is a
+                // body the guides actually measure -- a component or a hierarchical sheet.  A
+                // dragged wire end must keep snapping to pins, and a mixed selection contains
+                // one, so both fall back to anchor > guide.  Power ports fall here too
+                // (GetAlignmentBox() rejects them), which is right: a GND flag wants the pin.
+                const bool allBodies = !selection.Empty()
+                                       && std::all_of( selection.begin(), selection.end(),
+                                                       []( const EDA_ITEM* aItem )
+                                                       {
+                                                           return EE_GRID_HELPER::GetAlignmentBox(
+                                                                   aItem ).has_value();
+                                                       } );
 
-                grid.SetMoveContext( guideBBox, prevPos, allSymbols );
+                grid.SetMoveContext( guideBBox, prevPos, allBodies );
 
                 // Must follow SetMoveContext(): the sweep sorts neighbours by distance from
                 // OriginalBBox.Centre().

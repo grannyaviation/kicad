@@ -27,6 +27,7 @@
 #include <sch_group.h>
 #include <sch_item.h>
 #include <sch_line.h>
+#include <sch_sheet.h>
 #include <sch_symbol.h>
 #include <sch_table.h>
 #include <sch_tablecell.h>
@@ -355,6 +356,50 @@ SCH_ITEM* EE_GRID_HELPER::GetSnapped() const
 }
 
 
+std::optional<BOX2I> EE_GRID_HELPER::GetAlignmentBox( const EDA_ITEM* aItem )
+{
+    switch( aItem->Type() )
+    {
+    case SCH_SYMBOL_T:
+    {
+        const SCH_SYMBOL* symbol = static_cast<const SCH_SYMBOL*>( aItem );
+
+        // Power ports are SCH_SYMBOLs too, and a sheet usually has many more of them than
+        // components.  Aligning a chip to a GND flag is never what the user meant.
+        if( symbol->IsPower() )
+            return std::nullopt;
+
+        // Body box only: field text is not what anyone aligns to, and pins stick out by
+        // different amounts on either side of the same part.
+        const BOX2I box = symbol->GetBodyBoundingBox();
+
+        // GetBodyBoundingBox() swallows a boost::bad_pointer and returns a default-constructed
+        // box.  The engine would take that as a real point box at (0, 0) and pull symbols to it.
+        if( !box.IsValid() )
+            return std::nullopt;
+
+        return box;
+    }
+
+    case SCH_SHEET_T:
+    {
+        const SCH_SHEET* sheet = static_cast<const SCH_SHEET*>( aItem );
+
+        // The drawn rectangle, deliberately not GetBodyBoundingBox(): that inflates by half the
+        // border pen width, and the guide engine only accepts offsets that are a whole number of
+        // grid steps.  Two sheets with different border widths would differ by half that
+        // difference -- never a grid multiple -- so every sheet-to-sheet guide would be rejected
+        // and the feature would look dead.  GetBoundingBox() is worse still: it adds the sheet
+        // name above and the file name below, so guides would sit on invisible text.
+        return BOX2I( sheet->GetPosition(), sheet->GetSize() );
+    }
+
+    default:
+        return std::nullopt;
+    }
+}
+
+
 void EE_GRID_HELPER::CollectAlignmentNeighbors( const SCH_SELECTION& aSkip )
 {
     ALIGNMENT_GUIDE_ENGINE& engine = getSnapManager().GetAlignmentEngine();
@@ -370,26 +415,12 @@ void EE_GRID_HELPER::CollectAlignmentNeighbors( const SCH_SELECTION& aSkip )
 
     for( SCH_ITEM* item : queryVisible( viewport, aSkip ) )
     {
-        if( item->Type() != SCH_SYMBOL_T )
+        const std::optional<BOX2I> box = GetAlignmentBox( item );
+
+        if( !box )
             continue;
 
-        SCH_SYMBOL* symbol = static_cast<SCH_SYMBOL*>( item );
-
-        // Power ports are SCH_SYMBOLs too, and a sheet usually has many more of them than
-        // components.  Aligning a chip to a GND flag is never what the user meant.
-        if( symbol->IsPower() )
-            continue;
-
-        // Body box only: must match how the moving selection is measured in SCH_MOVE_TOOL,
-        // and field text is not what anyone aligns to.
-        const BOX2I box = symbol->GetBodyBoundingBox();
-
-        // GetBodyBoundingBox() swallows a boost::bad_pointer and returns a default-constructed
-        // box.  The engine would take that as a real point box at (0, 0) and pull symbols to it.
-        if( !box.IsValid() )
-            continue;
-
-        boxes.push_back( box );
+        boxes.push_back( *box );
     }
 
     // The engine keeps the first candidate on a tie and walks neighbours in input order, so the

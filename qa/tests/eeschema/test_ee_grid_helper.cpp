@@ -23,6 +23,7 @@
 #include <sch_line.h>
 #include <sch_shape.h>
 #include <sch_junction.h>
+#include <sch_sheet.h>
 #include <layer_ids.h>
 
 BOOST_AUTO_TEST_SUITE( EEGridHelperTest )
@@ -42,6 +43,37 @@ BOOST_AUTO_TEST_CASE( ItemGridClassification )
 
     SCH_JUNCTION junc;
     BOOST_CHECK_EQUAL( helper.GetItemGrid( &junc ), GRID_WIRES );
+}
+
+// A hierarchical sheet is what the user calls a "chip": the big labelled box.  It must be an
+// alignment target, and it must be measured by the rectangle that is actually drawn -- no border
+// stroke halo, no sheet-name/file-name text -- or the whole-grid-step offsets the guide engine
+// insists on can never be hit.
+BOOST_AUTO_TEST_CASE( AlignmentBoxForSheet )
+{
+    SCH_SHEET sheet;
+    sheet.SetPosition( VECTOR2I( 1000, 2000 ) );
+    sheet.SetSize( VECTOR2I( 5000, 7000 ) );
+
+    const std::optional<BOX2I> box = EE_GRID_HELPER::GetAlignmentBox( &sheet );
+
+    BOOST_REQUIRE( box.has_value() );
+    BOOST_CHECK_EQUAL( box->GetOrigin(), VECTOR2I( 1000, 2000 ) );
+    BOOST_CHECK_EQUAL( box->GetEnd(), VECTOR2I( 6000, 9000 ) );
+
+    // Not the stroked/labelled boxes -- those would break grid-legal snapping.
+    BOOST_CHECK( *box != sheet.GetBodyBoundingBox() );
+    BOOST_CHECK( *box != sheet.GetBoundingBox() );
+}
+
+
+BOOST_AUTO_TEST_CASE( AlignmentBoxRejectsNonBodies )
+{
+    SCH_JUNCTION junc;
+    BOOST_CHECK( !EE_GRID_HELPER::GetAlignmentBox( &junc ).has_value() );
+
+    SCH_LINE wire( VECTOR2I( 0, 0 ), LAYER_WIRE );
+    BOOST_CHECK( !EE_GRID_HELPER::GetAlignmentBox( &wire ).has_value() );
 }
 
 BOOST_AUTO_TEST_SUITE_END()
