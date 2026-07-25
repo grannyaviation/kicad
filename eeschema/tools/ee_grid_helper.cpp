@@ -39,13 +39,13 @@
 #include "ee_grid_helper.h"
 
 EE_GRID_HELPER::EE_GRID_HELPER() :
-        GRID_HELPER()
+        GRID_HELPER( schIUScale )
 {
 }
 
 
 EE_GRID_HELPER::EE_GRID_HELPER( TOOL_MANAGER* aToolMgr ) :
-        GRID_HELPER( aToolMgr, LAYER_SCHEMATIC_ANCHOR )
+        GRID_HELPER( aToolMgr, LAYER_SCHEMATIC_ANCHOR, schIUScale )
 {
     if( !m_toolMgr )
         return;
@@ -166,12 +166,8 @@ VECTOR2I EE_GRID_HELPER::BestSnapAnchor( const VECTOR2I& aOrigin, GRID_HELPER_GR
     m_snapItem = std::nullopt;
 
     // Any exit other than the guide path below means "no guides"; clearing here covers
-    // the early returns too.  Guarded so the common case costs no VIEW::Update.
-    if( m_alignGuidePreview.HasGuides() )
-    {
-        m_alignGuidePreview.ClearGuides();
-        m_toolMgr->GetView()->Update( &m_alignGuidePreview, KIGFX::GEOMETRY );
-    }
+    // the early returns too.
+    clearAlignmentGuides();
 
     for( SCH_ITEM* item : queryVisible( bb, aSkip ) )
         computeAnchors( item, aOrigin );
@@ -251,47 +247,34 @@ VECTOR2I EE_GRID_HELPER::BestSnapAnchor( const VECTOR2I& aOrigin, GRID_HELPER_GR
     snapLineManager.SetSnapLineEnd( std::nullopt );
     m_toolMgr->GetView()->SetVisible( &m_viewSnapPoint, false );
 
-    // Smart alignment guides: only during an active move (context set by the move tool)
-    // and only when snapping is enabled at all.  Runs after the teardown above so a guide
-    // return leaves the canvas in the same clean state the plain grid return does.
-    if( m_moveContext && m_enableSnap )
-    {
-        ALIGNMENT_GUIDE_ENGINE& engine = getSnapManager().GetAlignmentEngine();
+    // Smart alignment guides sit below every anchor snap above and above the plain grid
+    // return, so priority is anchor > guide > grid.  Runs after the teardown above so a
+    // guide return leaves the canvas in the same clean state the plain grid return does.
 
-        if( engine.HasInputs() )
-        {
-            // pt, not aOrigin: pt is what this function returns without a guide, and
-            // OriginalCursor is the move tool's *snapped* cursor (prevPos), so pt is its
-            // counterpart -- the position the items are about to occupy.  Extrapolating
-            // from the raw cursor instead would pair a snapped origin with an unsnapped
-            // current point and land the selection up to half a grid step off grid, which
-            // the whole-multiple offset below cannot undo.
-            BOX2I movingBox = m_moveContext->OriginalBBox;
-            movingBox.Move( pt - m_moveContext->OriginalCursor );
+    // The grid constraint only means something when the cursor is grid-snapped
+    // (canUseGrid(), which is what put pt on nearestGrid above).  With grid snapping off,
+    // pt is the raw cursor and the moving box is already off-grid, so requiring
+    // grid-multiple offsets would protect nothing -- and would violate FindSnap's
+    // precondition that aMoving is grid-aligned -- while simply stopping guides from ever
+    // firing.
+    std::optional<VECTOR2I> gridStep;
 
-            // The grid constraint only means something when the cursor is grid-snapped
-            // (canUseGrid(), which is what put pt on nearestGrid above).  With grid
-            // snapping off, pt is the raw cursor and movingBox is already off-grid, so
-            // requiring grid-multiple offsets would protect nothing -- and would violate
-            // FindSnap's precondition that aMoving is grid-aligned -- while simply
-            // stopping guides from ever firing.
-            //
-            // Integer step: the engine tests grid legality with %, and positions are
-            // integers, so the grid a snap can actually honour is the rounded one.
-            std::optional<VECTOR2I> gridStep;
+    if( canUseGrid() )
+        gridStep = KiROUND( gridSize );
 
-            if( canUseGrid() )
-                gridStep = KiROUND( gridSize );
+    // At least +/-2 grid steps, whatever the grid.  Reusing snapRange alone would
+    // make the feature unreachable on a 100 mil grid, since the engine only accepts
+    // whole-step offsets and 55 mil is less than one step.
+    const int guideRange = std::max( snapRange,
+                                     2 * KiROUND( std::max( gridSize.x, gridSize.y ) ) );
 
-            if( auto guide = engine.FindSnap( movingBox, snapRange, gridStep ) )
-            {
-                m_alignGuidePreview.SetGuides( *guide );
-                m_toolMgr->GetView()->Update( &m_alignGuidePreview, KIGFX::GEOMETRY );
-
-                return pt + guide->Offset;
-            }
-        }
-    }
+    // pt, not aOrigin: pt is what this function returns without a guide, and OriginalCursor
+    // is the move tool's *snapped* cursor (prevPos), so pt is its counterpart -- the
+    // position the items are about to occupy.  Extrapolating from the raw cursor instead
+    // would pair a snapped origin with an unsnapped current point and land the selection up
+    // to half a grid step off grid, which the whole-multiple offset cannot undo.
+    if( std::optional<VECTOR2I> alignSnap = snapToAlignmentGuides( pt, guideRange, gridStep ) )
+        return *alignSnap;
 
     return pt;
 }
