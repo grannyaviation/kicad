@@ -806,6 +806,27 @@ bool SCH_MOVE_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, SCH_COMMIT* aComm
                 initializeMoveOperation( aEvent, selection, aCommit, internalPoints, snapLayer );
                 prevPos = m_cursor;
                 refreshTraits();
+
+                // Measure the moving selection exactly as CollectAlignmentNeighbors()
+                // measures neighbours, or the guides align edges the user cannot see.
+                // NOTE: deliberately not SCH_SELECTION::GetBoundingBox() -- that merges
+                // symbols via GetBoundingBox(), i.e. body + pins + visible fields, so the
+                // two sides would disagree by the field/pin halo and every guide would sit
+                // consistently wrong.
+                BOX2I guideBBox;
+
+                for( EDA_ITEM* item : selection )
+                {
+                    if( item->Type() == SCH_SYMBOL_T )
+                        guideBBox.Merge( static_cast<SCH_SYMBOL*>( item )->GetBodyBoundingBox() );
+                    else
+                        guideBBox.Merge( item->GetBoundingBox() );
+                }
+
+                // prevPos, not m_cursor: the items sit where prevPos put them.  The engine
+                // extrapolates the moving box from this pair, so the two must agree.
+                grid.SetMoveContext( guideBBox, prevPos );
+                grid.CollectAlignmentNeighbors( selection );
             }
 
             //------------------------------------------------------------------------
@@ -817,6 +838,12 @@ bool SCH_MOVE_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, SCH_COMMIT* aComm
             // getting double-key events that toggled the axis locking if you pressed them in a certain order.
             if( controls->GetSettings().m_lastKeyboardCursorPositionValid && !evt->IsAction( &ACTIONS::refreshPreview ) )
             {
+                // This branch repositions without BestSnapAnchor(), which is where stale
+                // guides normally get dropped.  m_lastKeyboardCursorPositionValid stays true
+                // until the mouse really moves, so guides painted by the preceding mouse drag
+                // would otherwise stay on screen while the selection walks off with the arrows.
+                grid.clearAlignmentGuides();
+
                 VECTOR2I keyboardPos( controls->GetSettings().m_lastKeyboardCursorPosition );
                 long action = controls->GetSettings().m_lastKeyboardCursorCommand;
 
@@ -1102,6 +1129,11 @@ bool SCH_MOVE_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, SCH_COMMIT* aComm
 
     m_hiddenJunctions.clear();
     m_view->ClearPreview();
+
+    // Drop the guides before PopTool() hands control to whatever tool comes next.  (grid is
+    // function-local, so ~GRID_HELPER() would take the overlay item out of the view anyway.)
+    grid.ClearMoveContext();
+
     m_frame->PopTool( aEvent );
 
     return !restore_state;
