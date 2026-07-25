@@ -33,7 +33,10 @@ using namespace KIGFX;
 ALIGNMENT_GUIDE_GEOM::ALIGNMENT_GUIDE_GEOM( const EDA_IU_SCALE& aIuScale ) :
         EDA_ITEM( nullptr, NOT_USED ), // Never added to a BOARD/SCHEMATIC so it needs no type
         m_hasGuides( false ),
-        m_color( COLOR4D( 0.9, 0.2, 0.6, 0.9 ) ),
+        // KiCad's own RED (rgb(132,0,0)) -- the same dark red schematic symbol bodies use.
+        // COLOR4D( EDA_COLOR_T ) always comes back fully opaque, which is too heavy for an
+        // overlay, so re-apply the previous 0.9 alpha.
+        m_color( COLOR4D( RED ).WithAlpha( 0.9 ) ),
         m_iuScale( aIuScale )
 {
 }
