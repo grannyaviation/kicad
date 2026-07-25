@@ -190,12 +190,47 @@ VECTOR2I EE_GRID_HELPER::BestSnapAnchor( const VECTOR2I& aOrigin, GRID_HELPER_GR
     SNAP_LINE_MANAGER& snapLineManager = getSnapManager().GetSnapLineManager();
     const VECTOR2D     gridSize = GetGridSize( aGrid );
 
+    // The grid constraint only means something when the cursor is grid-snapped; with grid
+    // snapping off the base below is the raw cursor and the moving box is already off-grid, so
+    // requiring grid-multiple offsets would protect nothing -- and would violate FindSnap's
+    // precondition that aMoving is grid-aligned -- while simply stopping guides from ever firing.
+    std::optional<VECTOR2I> gridStep;
+
+    if( canUseGrid() )
+        gridStep = KiROUND( gridSize );
+
+    // At least +/-2 grid steps, whatever the grid.  Reusing snapRange alone would make the
+    // feature unreachable on a 100 mil grid, since the engine only accepts whole-step offsets
+    // and 55 mil is less than one step.
+    const int guideRange = std::max( snapRange,
+                                     2 * KiROUND( std::max( gridSize.x, gridSize.y ) ) );
+
+    // The base is what this function returns with neither a guide nor an anchor snap, i.e. what
+    // the tail below leaves in pt: nearestGrid when the grid is usable, the raw cursor otherwise.
+    // It must be grid-aligned whenever gridStep is passed (FindSnap's precondition), and it must
+    // be the counterpart of the move tool's OriginalCursor, which is its *snapped* cursor
+    // (prevPos).  Extrapolating from the raw cursor while the grid is on would pair a snapped
+    // origin with an unsnapped current point and land the selection up to half a grid step off
+    // grid, which the whole-multiple offset cannot undo.
+    //
+    // Computed here rather than at the return below because a symbol drag ranks the guide above
+    // anchor snapping, and that decision has to be made before the anchor block runs.  Queried
+    // exactly once per call either way -- this is the mouse-motion path.
+    const std::optional<GUIDE_SNAP> alignSnap =
+            computeAlignmentGuideSnap( canUseGrid() ? nearestGrid : aOrigin, guideRange, gridStep );
+
+    // Dragging whole symbols: the guide wins over pins and wire ends.  Anything else in the
+    // selection (a wire end, a label) keeps anchor > guide, or dropping a wire on a pin breaks.
+    // Set by SCH_MOVE_TOOL, which is where the selection is known.
+    const bool preferGuides = alignSnap && m_moveContext && m_moveContext->PreferGuides;
+
     std::optional<VECTOR2I> guideSnap;
 
     if( m_enableSnapLine )
         guideSnap = SnapToConstructionLines( aOrigin, nearestGrid, gridSize, snapRange );
 
-    if( m_enableSnap && nearest && nearest->Distance( aOrigin ) < snapDist.EuclideanNorm() )
+    if( m_enableSnap && !preferGuides && nearest
+        && nearest->Distance( aOrigin ) < snapDist.EuclideanNorm() )
     {
 
         if( canUseGrid() && ( nearestGrid - aOrigin ).EuclideanNorm() < snapDist.EuclideanNorm() )
@@ -247,34 +282,15 @@ VECTOR2I EE_GRID_HELPER::BestSnapAnchor( const VECTOR2I& aOrigin, GRID_HELPER_GR
     snapLineManager.SetSnapLineEnd( std::nullopt );
     m_toolMgr->GetView()->SetVisible( &m_viewSnapPoint, false );
 
-    // Smart alignment guides sit below every anchor snap above and above the plain grid
-    // return, so priority is anchor > guide > grid.  Runs after the teardown above so a
-    // guide return leaves the canvas in the same clean state the plain grid return does.
-
-    // The grid constraint only means something when the cursor is grid-snapped
-    // (canUseGrid(), which is what put pt on nearestGrid above).  With grid snapping off,
-    // pt is the raw cursor and the moving box is already off-grid, so requiring
-    // grid-multiple offsets would protect nothing -- and would violate FindSnap's
-    // precondition that aMoving is grid-aligned -- while simply stopping guides from ever
-    // firing.
-    std::optional<VECTOR2I> gridStep;
-
-    if( canUseGrid() )
-        gridStep = KiROUND( gridSize );
-
-    // At least +/-2 grid steps, whatever the grid.  Reusing snapRange alone would
-    // make the feature unreachable on a 100 mil grid, since the engine only accepts
-    // whole-step offsets and 55 mil is less than one step.
-    const int guideRange = std::max( snapRange,
-                                     2 * KiROUND( std::max( gridSize.x, gridSize.y ) ) );
-
-    // pt, not aOrigin: pt is what this function returns without a guide, and OriginalCursor
-    // is the move tool's *snapped* cursor (prevPos), so pt is its counterpart -- the
-    // position the items are about to occupy.  Extrapolating from the raw cursor instead
-    // would pair a snapped origin with an unsnapped current point and land the selection up
-    // to half a grid step off grid, which the whole-multiple offset cannot undo.
-    if( std::optional<VECTOR2I> alignSnap = snapToAlignmentGuides( pt, guideRange, gridStep ) )
-        return *alignSnap;
+    // Smart alignment guides sit above the plain grid return, and -- unless preferGuides sent
+    // the anchor block packing above -- below every anchor snap.  Painted only here, after the
+    // teardown above, so a guide return leaves the canvas in the same clean state the plain grid
+    // return does: no stale snap marker, no stale snap line, no stale m_snapItem.
+    if( alignSnap )
+    {
+        showAlignmentGuides( *alignSnap );
+        return alignSnap->Position;
+    }
 
     return pt;
 }

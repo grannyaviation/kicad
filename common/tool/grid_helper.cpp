@@ -153,8 +153,9 @@ void GRID_HELPER::clearAlignmentGuides()
 }
 
 
-std::optional<VECTOR2I> GRID_HELPER::snapToAlignmentGuides( const VECTOR2I& aPos, int aSnapRange,
-                                                            const std::optional<VECTOR2I>& aGridStep )
+std::optional<GRID_HELPER::GUIDE_SNAP>
+GRID_HELPER::computeAlignmentGuideSnap( const VECTOR2I& aPos, int aSnapRange,
+                                        const std::optional<VECTOR2I>& aGridStep )
 {
     // Only during an active move (context set by the move tool) and only when snapping is
     // enabled at all (Shift suppresses).
@@ -175,13 +176,20 @@ std::optional<VECTOR2I> GRID_HELPER::snapToAlignmentGuides( const VECTOR2I& aPos
     if( !guide )
         return std::nullopt;
 
-    wxLogTrace( traceSnap, "  RETURNING alignment guide snap: (%d, %d)", aPos.x + guide->Offset.x,
+    wxLogTrace( traceSnap, "  alignment guide snap available: (%d, %d)", aPos.x + guide->Offset.x,
                 aPos.y + guide->Offset.y );
 
-    m_alignGuidePreview.SetGuides( *guide );
-    m_toolMgr->GetView()->Update( &m_alignGuidePreview, KIGFX::GEOMETRY );
+    return GUIDE_SNAP{ aPos + guide->Offset, std::move( *guide ) };
+}
 
-    return aPos + guide->Offset;
+
+void GRID_HELPER::showAlignmentGuides( const GUIDE_SNAP& aSnap )
+{
+    if( !m_toolMgr )
+        return;
+
+    m_alignGuidePreview.SetGuides( aSnap.Guides );
+    m_toolMgr->GetView()->Update( &m_alignGuidePreview, KIGFX::GEOMETRY );
 }
 
 

@@ -839,7 +839,17 @@ bool SCH_MOVE_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, SCH_COMMIT* aComm
                 // transforms the items in place and leaves the drag reference where it was, so
                 // prevPos is still the cursor the fresh box belongs to.  The engine
                 // extrapolates the moving box from this pair, so the two must agree.
-                grid.SetMoveContext( guideBBox, prevPos );
+                // Guides outrank pin/wire-end snapping only when the whole selection is
+                // symbols.  A dragged wire end must keep snapping to pins, and a mixed
+                // selection contains one, so both fall back to anchor > guide.
+                const bool allSymbols = !selection.Empty()
+                                        && std::all_of( selection.begin(), selection.end(),
+                                                        []( const EDA_ITEM* aItem )
+                                                        {
+                                                            return aItem->Type() == SCH_SYMBOL_T;
+                                                        } );
+
+                grid.SetMoveContext( guideBBox, prevPos, allSymbols );
 
                 // Must follow SetMoveContext(): the sweep sorts neighbours by distance from
                 // OriginalBBox.Centre().

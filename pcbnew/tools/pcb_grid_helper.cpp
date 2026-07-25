@@ -1019,8 +1019,11 @@ VECTOR2I PCB_GRID_HELPER::BestSnapAnchor( const VECTOR2I& aOrigin, const LSET& a
     // aOrigin, i.e. the raw cursor: the moving bbox is extrapolated from the same reference
     // the move tool captured OriginalCursor at.  No grid step either -- PCB items have no
     // grid obligation, and the snap radius here is zoom-dependent rather than grid-derived.
-    if( std::optional<VECTOR2I> alignSnap = snapToAlignmentGuides( aOrigin, snapRange ) )
-        return *alignSnap;
+    if( std::optional<GUIDE_SNAP> alignSnap = computeAlignmentGuideSnap( aOrigin, snapRange ) )
+    {
+        showAlignmentGuides( *alignSnap );
+        return alignSnap->Position;
+    }
 
     wxLogTrace( traceSnap, "  RETURNING grid snap: (%d, %d)", nearestGrid.x, nearestGrid.y );
 

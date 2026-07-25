@@ -84,10 +84,15 @@ public:
      * Provide the context needed for smart alignment guides during a move:
      * the moving selection's bbox and the cursor position at drag start.
      * While set, BestSnapAnchor implementations may offer alignment snaps.
+     *
+     * @param aPreferGuides rank an available alignment guide above item-anchor snapping.
+     *                      Only for selections that have no business snapping to anchors
+     *                      (whole symbols); a wire end must keep snapping to pins.
      */
-    void SetMoveContext( const BOX2I& aOriginalBBox, const VECTOR2I& aOriginalCursor )
+    void SetMoveContext( const BOX2I& aOriginalBBox, const VECTOR2I& aOriginalCursor,
+                         bool aPreferGuides = false )
     {
-        m_moveContext = MOVE_CONTEXT{ aOriginalBBox, aOriginalCursor };
+        m_moveContext = MOVE_CONTEXT{ aOriginalBBox, aOriginalCursor, aPreferGuides };
     }
 
     void ClearMoveContext()
@@ -261,7 +266,25 @@ protected:
                              const VECTOR2I& aOffset ) const;
 
     /**
-     * Offer an alignment-guide snap for a move in progress.
+     * An alignment-guide snap that has been computed but not painted.
+     *
+     * Computing and painting are separate steps so a caller can rank the guide against its
+     * other snap sources and paint only the winner: painting first and then returning some
+     * other snap leaves guide lines on the canvas for a snap that isn't happening.
+     *
+     * Position carries the resolved point rather than the raw offset so it cannot be added
+     * to a different base than the one it was computed from.
+     */
+    struct GUIDE_SNAP
+    {
+        VECTOR2I                       Position; ///< Where the caller should snap to
+        ALIGNMENT_GUIDE_ENGINE::RESULT Guides;   ///< Graphics, for showAlignmentGuides()
+    };
+
+    /**
+     * Compute an alignment-guide snap for a move in progress.  Paints nothing; hand the
+     * result to showAlignmentGuides() if and only if the guide beat the caller's other
+     * snap candidates.
      *
      * @param aPos       the position the caller would otherwise return; the moving box is
      *                   extrapolated from it, so it must be the same reference the move
@@ -269,11 +292,14 @@ protected:
      * @param aSnapRange maximum snap distance in world units
      * @param aGridStep  when set, only offsets that are whole multiples are accepted;
      *                   pass std::nullopt when the caller's position is not grid-aligned
-     * @return the snapped position, or std::nullopt if no guide applies
+     * @return the snap, or std::nullopt if no guide applies
      */
-    std::optional<VECTOR2I> snapToAlignmentGuides( const VECTOR2I& aPos, int aSnapRange,
-                                                   const std::optional<VECTOR2I>& aGridStep
-                                                           = std::nullopt );
+    std::optional<GUIDE_SNAP> computeAlignmentGuideSnap( const VECTOR2I& aPos, int aSnapRange,
+                                                         const std::optional<VECTOR2I>& aGridStep
+                                                                 = std::nullopt );
+
+    /// Paint a guide returned by computeAlignmentGuideSnap().
+    void showAlignmentGuides( const GUIDE_SNAP& aSnap );
 
 protected:
     void showConstructionGeometry( bool aShow );
@@ -293,6 +319,9 @@ protected:
     {
         BOX2I    OriginalBBox;
         VECTOR2I OriginalCursor;
+
+        /// Alignment guide outranks item-anchor snapping.  See SetMoveContext().
+        bool     PreferGuides = false;
     };
 
     std::optional<MOVE_CONTEXT> m_moveContext;
