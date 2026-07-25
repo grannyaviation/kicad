@@ -759,6 +759,14 @@ bool SCH_MOVE_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, SCH_COMMIT* aComm
     KICURSOR    currentCursor = KICURSOR::MOVING;
     m_cursor = controls->GetCursorPosition();
 
+    // The alignment-guide bbox has to be re-measured whenever the selection changes shape
+    // (rotate, mirror, label conversion, unit/body-style switch, a further BREAK split, ...),
+    // not just at drag start.  Re-measuring is never *wrong*, only work, so the flag is a cost
+    // guard and re-arming it generously is safe.  The neighbour sweep is a separate one-shot:
+    // it walks the whole viewport and must run exactly once per drag.
+    bool updateBBox = true;
+    bool collectGuideNeighbors = true;
+
     // Axis locking for arrow key movement
     enum class AXIS_LOCK { NONE, HORIZONTAL, VERTICAL };
     AXIS_LOCK axisLock = AXIS_LOCK::NONE;
@@ -806,7 +814,10 @@ bool SCH_MOVE_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, SCH_COMMIT* aComm
                 initializeMoveOperation( aEvent, selection, aCommit, internalPoints, snapLayer );
                 prevPos = m_cursor;
                 refreshTraits();
+            }
 
+            if( updateBBox )
+            {
                 // Measure the moving selection exactly as CollectAlignmentNeighbors()
                 // measures neighbours, or the guides align edges the user cannot see.
                 // NOTE: deliberately not SCH_SELECTION::GetBoundingBox() -- that merges
@@ -823,10 +834,22 @@ bool SCH_MOVE_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, SCH_COMMIT* aComm
                         guideBBox.Merge( item->GetBoundingBox() );
                 }
 
-                // prevPos, not m_cursor: the items sit where prevPos put them.  The engine
+                // prevPos, not m_cursor: the items sit where prevPos put them, this event's
+                // movement is only applied further down.  That holds mid-move too -- a rotate
+                // transforms the items in place and leaves the drag reference where it was, so
+                // prevPos is still the cursor the fresh box belongs to.  The engine
                 // extrapolates the moving box from this pair, so the two must agree.
                 grid.SetMoveContext( guideBBox, prevPos );
-                grid.CollectAlignmentNeighbors( selection );
+
+                // Must follow SetMoveContext(): the sweep sorts neighbours by distance from
+                // OriginalBBox.Centre().
+                if( collectGuideNeighbors )
+                {
+                    grid.CollectAlignmentNeighbors( selection );
+                    collectGuideNeighbors = false;
+                }
+
+                updateBBox = false;
             }
 
             //------------------------------------------------------------------------
@@ -1051,6 +1074,11 @@ bool SCH_MOVE_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, SCH_COMMIT* aComm
                     controls->SetCursorPosition( m_cursor, false );
                     prevPos = m_cursor;
                 }
+
+                // New split, new selection: the stored box describes segments we are no
+                // longer dragging.  (The neighbour set survives: it holds symbol boxes by
+                // value, and a wire break touches neither.)
+                updateBBox = true;
             }
         }
         else if( evt->IsDblClick( BUT_LEFT ) )
@@ -1076,9 +1104,22 @@ bool SCH_MOVE_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, SCH_COMMIT* aComm
         {
             // Event was already handled by handleMoveToolActions, don't pass it on
             wxLogTrace( traceSchMove, "doMoveSelection: event handled, not passing" );
+
+            // rotateCW/CCW, increment and the to*Label/toText/toTextBox conversions all ran
+            // synchronously above and reshaped the selection.  The rest of the list is inert
+            // (a bell, or eaten), but re-measuring costs one bbox merge, so don't split hairs.
+            updateBBox = true;
         }
         else
         {
+            // Everything the move tool does not handle itself goes to another tool, and that
+            // is where the remaining geometry mutations live: mirrorH/mirrorV, swap, justify,
+            // autoplaceFields, cycleBodyStyle, properties, and the unit / body-style menu
+            // choices handleMoveToolActions() applied above.  Each of them posts
+            // refreshPreview, so the next motion frame re-measures before BestSnapAnchor()
+            // reads the box.  Flagging the whole catch-all costs a bbox merge on the odd zoom
+            // or pan and removes any "did we list them all?" failure mode.
+            updateBBox = true;
             evt->SetPassEvent();
         }
 
