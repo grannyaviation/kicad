@@ -151,6 +151,11 @@ private:
     void buildGraphics( const BOX2I& aSnapped, int aAxis, const SNAP_CANDIDATE& aWinner,
                         const std::vector<CLUSTER>& aClusters, RESULT& aResult ) const;
 
+    /// Guide lines for an alignment snap: one per ordinate the snapped box shares with a
+    /// neighbor, each spanning every box sitting on it.
+    void buildAlignmentLines( const BOX2I& aSnapped, int aAxis, int aWinnerOrd,
+                              RESULT& aResult ) const;
+
     std::vector<BOX2I> m_neighbors;
     std::vector<BOX2I> m_containers;
 };

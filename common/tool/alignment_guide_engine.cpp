@@ -163,6 +163,64 @@ void ALIGNMENT_GUIDE_ENGINE::collectAxisCandidates( const BOX2I& aMoving, int aA
 }
 
 
+void ALIGNMENT_GUIDE_ENGINE::buildAlignmentLines( const BOX2I& aSnapped, int aAxis, int aWinnerOrd,
+                                                  RESULT& aResult ) const
+{
+    const SPAN ms = spanOf( aSnapped, aAxis );
+    const SPAN crossM = spanOf( aSnapped, 1 - aAxis );
+
+    // The winner's ordinate comes first and is drawn unconditionally: it is the alignment the
+    // snap actually made, so omitting it would leave a guide that does not explain the move.
+    // The snapped box's own two edges follow, and earn a line whenever they land on a neighbor
+    // edge as well -- that is what puts a guide down *both* sides of an equal-width neighbor
+    // instead of only the side that happened to win by sort order.
+    //
+    // The moving box's center is deliberately not in this list.  A dashed line down the middle
+    // of a symbol is noise, and when the center is what snapped it arrives as aWinnerOrd anyway.
+    const int ords[3] = { aWinnerOrd, ms.Min, ms.Max };
+
+    for( int i = 0; i < 3; ++i )
+    {
+        const int ord = ords[i];
+
+        // Equal-width boxes make ms.Min or ms.Max the winning ordinate, and a zero-size box
+        // makes them each other.  One line per ordinate, not one per way of naming it.
+        if( i > 0 && std::find( ords, ords + i, ord ) != ords + i )
+            continue;
+
+        // Start from the moving box and grow across every neighbor on this ordinate, so three
+        // stacked symbols get one line running from the first to the last rather than a stub
+        // reaching only the nearest.
+        SPAN cross = crossM;
+        bool matched = ( i == 0 );
+
+        for( const BOX2I& n : m_neighbors )
+        {
+            const SPAN ns = spanOf( n, aAxis );
+
+            // Center pairings only for the winning ordinate.  Elsewhere they would draw a line
+            // asserting an edge-to-center alignment, which collectAxisCandidates refuses to
+            // snap to in the first place.
+            if( !( ns.Min == ord || ns.Max == ord || ( i == 0 && ns.Center() == ord ) ) )
+                continue;
+
+            const SPAN cs = spanOf( n, 1 - aAxis );
+            cross.Min = std::min( cross.Min, cs.Min );
+            cross.Max = std::max( cross.Max, cs.Max );
+            matched = true;
+        }
+
+        if( !matched )
+            continue;
+
+        if( aAxis == 0 )
+            aResult.Lines.emplace_back( VECTOR2I( ord, cross.Min ), VECTOR2I( ord, cross.Max ) );
+        else
+            aResult.Lines.emplace_back( VECTOR2I( cross.Min, ord ), VECTOR2I( cross.Max, ord ) );
+    }
+}
+
+
 void ALIGNMENT_GUIDE_ENGINE::buildGraphics( const BOX2I& aSnapped, int aAxis,
                                             const SNAP_CANDIDATE&       aWinner,
                                             const std::vector<CLUSTER>& aClusters,
@@ -172,22 +230,8 @@ void ALIGNMENT_GUIDE_ENGINE::buildGraphics( const BOX2I& aSnapped, int aAxis,
     switch( aWinner.Kind )
     {
     case KIND_ALIGN:
-    {
-        // Guide line runs along the snapped ordinate, spanning both boxes on the
-        // cross axis.  The ordinate was recorded when the candidate was collected.
-        const int  ord = aWinner.Ord;
-        const SPAN crossM = spanOf( aSnapped, 1 - aAxis );
-        const SPAN crossN = spanOf( m_neighbors[aWinner.N1], 1 - aAxis );
-        const int  lo = std::min( crossM.Min, crossN.Min );
-        const int  hi = std::max( crossM.Max, crossN.Max );
-
-        if( aAxis == 0 )
-            aResult.Lines.emplace_back( VECTOR2I( ord, lo ), VECTOR2I( ord, hi ) );
-        else
-            aResult.Lines.emplace_back( VECTOR2I( lo, ord ), VECTOR2I( hi, ord ) );
-
+        buildAlignmentLines( aSnapped, aAxis, aWinner.Ord, aResult );
         break;
-    }
 
     case KIND_EQUAL_GAP:
     {

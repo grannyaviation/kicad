@@ -122,6 +122,7 @@ void ALIGNMENT_GUIDE_GEOM::ViewDraw( int aLayer, VIEW* aView ) const
     KIFONT::FONT*                   font = KIFONT::FONT::GetFont();
     const PREVIEW::TEXT_DIMS        textDims = PREVIEW::GetConstantGlyphHeight( &gal );
     const int                       padding = aView->ToWorld( 3 );
+    const int                       tick = aView->ToWorld( 4 );
 
     TEXT_ATTRIBUTES textAttrs;
     textAttrs.m_Size = textDims.GlyphSize;
@@ -141,13 +142,30 @@ void ALIGNMENT_GUIDE_GEOM::ViewDraw( int aLayer, VIEW* aView ) const
                                                              textDims.StrokeWidth, false, false,
                                                              KIFONT::METRICS::Default() );
 
+        // A dimension line spanning the measured gap, capped with perpendicular ticks.  Without
+        // it the pill is a bare number floating between two symbols with nothing saying which
+        // distance it belongs to -- and with two equal gaps on screen, that is the whole point.
+        const VECTOR2I dir = badge.Vertical ? VECTOR2I( 0, 1 ) : VECTOR2I( 1, 0 );
+        const VECTOR2I perp = badge.Vertical ? VECTOR2I( 1, 0 ) : VECTOR2I( 0, 1 );
+        const VECTOR2I half = dir * ( badge.Gap / 2 );
+
+        gal.SetIsFill( false );
+        gal.SetIsStroke( true );
+        gal.SetStrokeColor( m_color );
+        gal.DrawLine( badge.Pos - half, badge.Pos + half );
+        gal.DrawLine( badge.Pos - half - perp * tick, badge.Pos - half + perp * tick );
+        gal.DrawLine( badge.Pos + half - perp * tick, badge.Pos + half + perp * tick );
+
         // A filled rounded segment as thick as the text is a pill-shaped badge in one call.
-        // The round caps supply the horizontal padding.
+        // The round caps supply the horizontal padding.  Drawn after the line so it masks the
+        // middle of it, as a dimension label does.
         const VECTOR2I halfLen( extents.x / 2, 0 );
 
+        // Opaque, unlike the lines: the badge sits on top of the reference designator more
+        // often than not, and at 0.9 the designator reads straight through the number.
         gal.SetIsStroke( false );
         gal.SetIsFill( true );
-        gal.SetFillColor( m_color );
+        gal.SetFillColor( m_color.WithAlpha( 1.0 ) );
         gal.DrawSegment( badge.Pos - halfLen, badge.Pos + halfLen, extents.y + 2 * padding );
 
         // Same trick RULER_ITEM uses for its drop shadows: black on light, white on dark.

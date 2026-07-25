@@ -338,13 +338,18 @@ BOOST_AUTO_TEST_CASE( ContainerLosesToNearerAlignment )
     // Y: no neighbor candidate is in range, so the container centre wins (-2).
     BOOST_CHECK_EQUAL( result->Offset.y, -2 );
 
-    // Snapped box is x:[96,116], y:[45,55].  The X guide spans the cross axis
-    // merged from the snapped box (y:[45,55]) and the neighbor (y:[400,440]).
-    BOOST_REQUIRE_EQUAL( result->Lines.size(), 1 );
+    // Snapped box is x:[96,116], y:[45,55] -- the same width as the neighbor, so both its
+    // edges land on a neighbor edge and both get a guide.  Each spans the cross axis merged
+    // from the snapped box (y:[45,55]) and the neighbor (y:[400,440]).
+    BOOST_REQUIRE_EQUAL( result->Lines.size(), 2 );
     BOOST_CHECK_EQUAL( result->Lines[0].A.x, 96 );
     BOOST_CHECK_EQUAL( result->Lines[0].A.y, 45 );
     BOOST_CHECK_EQUAL( result->Lines[0].B.x, 96 );
     BOOST_CHECK_EQUAL( result->Lines[0].B.y, 440 );
+    BOOST_CHECK_EQUAL( result->Lines[1].A.x, 116 );
+    BOOST_CHECK_EQUAL( result->Lines[1].A.y, 45 );
+    BOOST_CHECK_EQUAL( result->Lines[1].B.x, 116 );
+    BOOST_CHECK_EQUAL( result->Lines[1].B.y, 440 );
 
     // Only the Y axis snapped to the container, so exactly one centre mark.
     BOOST_REQUIRE_EQUAL( result->CenterMarks.size(), 1 );
@@ -461,6 +466,66 @@ BOOST_AUTO_TEST_CASE( EqualSpacingVerticalBadges )
     BOOST_CHECK_EQUAL( result->Badges[0].Pos.y, 35 );
     BOOST_CHECK_EQUAL( result->Badges[1].Pos.x, 10 );
     BOOST_CHECK_EQUAL( result->Badges[1].Pos.y, 85 );
+}
+
+
+// Three identical symbols in a column: the guide must appear down both sides, and each line
+// must run the full height of the stack rather than stopping at the nearest neighbor.
+BOOST_AUTO_TEST_CASE( AlignedStackDrawsBothSidesFullSpan )
+{
+    ALIGNMENT_GUIDE_ENGINE engine;
+
+    // Two neighbors 40 wide at x:[0,40], stacked at y:[100,150] and y:[200,250].
+    engine.SetNeighbors( { BOX2I( VECTOR2I( 0, 100 ), VECTOR2I( 40, 50 ) ),
+                           BOX2I( VECTOR2I( 0, 200 ), VECTOR2I( 40, 50 ) ) } );
+
+    // Same width, dropped above them and 3 off to the right.  Y is chosen so no Y candidate
+    // is in range, leaving one clean X snap to reason about.
+    BOX2I moving( VECTOR2I( 3, 0 ), VECTOR2I( 40, 50 ) );
+
+    auto result = engine.FindSnap( moving, 10 );
+
+    BOOST_REQUIRE( result.has_value() );
+    BOOST_CHECK_EQUAL( result->Offset.x, -3 );
+    BOOST_CHECK_EQUAL( result->Offset.y, 0 );
+
+    // Left edges and right edges both align, so two lines -- not just the winning side.
+    BOOST_REQUIRE_EQUAL( result->Lines.size(), 2 );
+
+    // Both run y:[0,250]: the snapped box plus *both* neighbors on that ordinate, so the
+    // guide reaches the bottom of the last symbol and not only the middle one.
+    for( const SEG& line : result->Lines )
+    {
+        BOOST_CHECK_EQUAL( line.A.y, 0 );
+        BOOST_CHECK_EQUAL( line.B.y, 250 );
+        BOOST_CHECK_EQUAL( line.A.x, line.B.x );
+    }
+
+    BOOST_CHECK_EQUAL( result->Lines[0].A.x, 0 );
+    BOOST_CHECK_EQUAL( result->Lines[1].A.x, 40 );
+}
+
+
+// A center-center snap still draws its line even though centers are otherwise excluded, or
+// the guide would claim an alignment that is not the one that moved the item.
+BOOST_AUTO_TEST_CASE( CenterWinnerStillDrawsItsLine )
+{
+    ALIGNMENT_GUIDE_ENGINE engine;
+
+    // Neighbor x:[0,100] -> center 50.  Moving is 10 wide, so every edge pairing is far out
+    // of range and only center-center survives.
+    engine.SetNeighbors( { BOX2I( VECTOR2I( 0, 0 ), VECTOR2I( 100, 50 ) ) } );
+
+    BOX2I moving( VECTOR2I( 48, 500 ), VECTOR2I( 10, 20 ) );
+
+    auto result = engine.FindSnap( moving, 10 );
+
+    BOOST_REQUIRE( result.has_value() );
+    BOOST_CHECK_EQUAL( result->Offset.x, -3 );
+
+    BOOST_REQUIRE_EQUAL( result->Lines.size(), 1 );
+    BOOST_CHECK_EQUAL( result->Lines[0].A.x, 50 );
+    BOOST_CHECK_EQUAL( result->Lines[0].B.x, 50 );
 }
 
 
