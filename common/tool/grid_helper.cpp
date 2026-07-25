@@ -173,6 +173,22 @@ GRID_HELPER::computeAlignmentGuideSnap( const VECTOR2I& aPos, int aSnapRange,
     std::optional<ALIGNMENT_GUIDE_ENGINE::RESULT> guide =
             engine.FindSnap( movingBox, aSnapRange, aGridStep );
 
+    if( wxLog::IsAllowedTraceMask( traceSnap ) )
+    {
+        wxLogTrace( traceSnap,
+                    "  alignment guides: box (%d,%d)-(%d,%d) range %d grid (%d,%d) prefer %d",
+                    movingBox.GetLeft(), movingBox.GetTop(), movingBox.GetRight(),
+                    movingBox.GetBottom(), aSnapRange, aGridStep ? aGridStep->x : 0,
+                    aGridStep ? aGridStep->y : 0, m_moveContext->PreferGuides ? 1 : 0 );
+
+        // "Nothing was in range" and "the only candidates in range were rejected as off-grid"
+        // are identical on screen -- no guide line -- and need opposite fixes.  Re-running
+        // without the grid constraint is the cheapest way to tell them apart, and it only
+        // costs anything when someone is actually watching the trace.
+        if( !guide && aGridStep && engine.FindSnap( movingBox, aSnapRange ) )
+            wxLogTrace( traceSnap, "  alignment guides: candidate in range, rejected off-grid" );
+    }
+
     if( !guide )
         return std::nullopt;
 

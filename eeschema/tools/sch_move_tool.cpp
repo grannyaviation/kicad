@@ -825,11 +825,17 @@ bool SCH_MOVE_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, SCH_COMMIT* aComm
                 // symbols via GetBoundingBox(), i.e. body + pins + visible fields, so the
                 // two sides would disagree by the field/pin halo and every guide would sit
                 // consistently wrong.
+                // Bodies only.  A drag hauls every connected wire into the same selection, and
+                // those are rubber bands, not geometry anyone aligns to: merging them stretches
+                // the moving box out to wherever their far ends sit, so the "top edge" the
+                // guides line up stops being the symbol's.
                 BOX2I guideBBox;
 
                 for( EDA_ITEM* item : selection )
-                    guideBBox.Merge( EE_GRID_HELPER::GetAlignmentBox( item )
-                                             .value_or( item->GetBoundingBox() ) );
+                {
+                    if( std::optional<BOX2I> box = EE_GRID_HELPER::GetAlignmentBox( item ) )
+                        guideBBox.Merge( *box );
+                }
 
                 // prevPos, not m_cursor: the items sit where prevPos put them, this event's
                 // movement is only applied further down.  That holds mid-move too -- a rotate
@@ -841,22 +847,39 @@ bool SCH_MOVE_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, SCH_COMMIT* aComm
                 // dragged wire end must keep snapping to pins, and a mixed selection contains
                 // one, so both fall back to anchor > guide.  Power ports fall here too
                 // (GetAlignmentBox() rejects them), which is right: a GND flag wants the pin.
-                const bool allBodies = !selection.Empty()
-                                       && std::all_of( selection.begin(), selection.end(),
-                                                       []( const EDA_ITEM* aItem )
-                                                       {
-                                                           return EE_GRID_HELPER::GetAlignmentBox(
-                                                                   aItem ).has_value();
-                                                       } );
+                const bool allBodies =
+                        std::all_of( selection.begin(), selection.end(),
+                                     [&]( const EDA_ITEM* aItem )
+                                     {
+                                         if( EE_GRID_HELPER::GetAlignmentBox( aItem ) )
+                                             return true;
 
-                grid.SetMoveContext( guideBBox, prevPos, allBodies );
+                                         // Wires the drag hauled in by itself are not part of
+                                         // the gesture the user made, so they must not demote
+                                         // it from "moving a symbol" to "moving a wire".
+                                         return std::find( m_dragAdditions.begin(),
+                                                           m_dragAdditions.end(), aItem->m_Uuid )
+                                                != m_dragAdditions.end();
+                                     } );
 
-                // Must follow SetMoveContext(): the sweep sorts neighbours by distance from
-                // OriginalBBox.Centre().
-                if( collectGuideNeighbors )
+                // An invalid box would reach the engine as a real point box at the origin and
+                // pull the selection towards (0, 0), so a body-less selection gets no context
+                // at all rather than an empty one.
+                if( guideBBox.IsValid() )
                 {
-                    grid.CollectAlignmentNeighbors( selection );
-                    collectGuideNeighbors = false;
+                    grid.SetMoveContext( guideBBox, prevPos, allBodies );
+
+                    // Must follow SetMoveContext(): the sweep sorts neighbours by distance from
+                    // OriginalBBox.Centre().
+                    if( collectGuideNeighbors )
+                    {
+                        grid.CollectAlignmentNeighbors( selection );
+                        collectGuideNeighbors = false;
+                    }
+                }
+                else
+                {
+                    grid.ClearMoveContext();
                 }
 
                 updateBBox = false;
