@@ -75,8 +75,14 @@ public:
      *                   step are rejected outright.  Callers whose items must stay on a
      *                   grid (schematic pins) pass it.  Three things to know:
      *
-     *                   - offsets are rejected, never rounded: a rounded offset would
-     *                     leave the item unaligned while the guide line claimed otherwise;
+     *                   - *alignment* offsets are rejected, never rounded: a rounded offset
+     *                     would leave the item unaligned while the guide line claimed
+     *                     otherwise.  Equal-gap, between and container offsets promise a
+     *                     position rather than that two edges are level, so those are
+     *                     quantized onto the step instead of dropped -- without which equal
+     *                     spacing is unreachable for any item whose body is a half step tall,
+     *                     which in a schematic is most of them.  The resulting gaps can then
+     *                     differ by up to a grid step, and the badges say so;
      *                   - a non-positive component rejects every candidate on that axis,
      *                     so a zero step degrades to "guides don't engage" rather than to
      *                     "every candidate is legal";
@@ -144,8 +150,10 @@ private:
     /// Neighbors that cross-overlap aMoving, merged along aAxis, ordered ascending.
     std::vector<CLUSTER> buildClusters( const BOX2I& aMoving, int aAxis ) const;
 
+    /// @param aGridStep step for this axis, or 0 for unconstrained.  Alignment candidates are
+    ///                  left exact for the caller to reject; the rest are quantized onto it.
     void collectAxisCandidates( const BOX2I& aMoving, int aAxis,
-                                const std::vector<CLUSTER>& aClusters,
+                                const std::vector<CLUSTER>& aClusters, int aGridStep,
                                 std::vector<SNAP_CANDIDATE>& aOut ) const;
 
     void buildGraphics( const BOX2I& aSnapped, int aAxis, const SNAP_CANDIDATE& aWinner,

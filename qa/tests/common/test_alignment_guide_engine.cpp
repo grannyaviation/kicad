@@ -622,6 +622,63 @@ BOOST_AUTO_TEST_CASE( GridLegalCandidateBeatsNearerIllegalOne )
 }
 
 
+// Real geometry from a KiCad demo, in schematic IU on a 50 mil (12700) grid.  Three
+// hierarchical sheets in a column; the sheet edges sit on *half* steps, which is normal --
+// sheet heights come from wherever the user dragged them.  The exact equal-gap position for
+// the top sheet is half a step away, so rejecting off-grid offsets outright made equal
+// spacing unreachable for the whole schematic.
+BOOST_AUTO_TEST_CASE( EqualGapQuantizesOntoGrid )
+{
+    ALIGNMENT_GUIDE_ENGINE engine;
+
+    // DSI_CSI y:[1022350,1200150] and PCIe-M2 y:[1289050,1422400], gap 88900 == 7 steps.
+    engine.SetNeighbors( { BOX2I( VECTOR2I( 2146300, 1022350 ), VECTOR2I( 209550, 177800 ) ),
+                           BOX2I( VECTOR2I( 2146300, 1289050 ), VECTOR2I( 209550, 133350 ) ) } );
+
+    // IO sheet, bottom at 927100.  Equal spacing wants its bottom at 1022350 - 88900 =
+    // 933450, i.e. +6350 -- exactly half a step.
+    BOX2I moving( VECTOR2I( 2146300, 463550 ), VECTOR2I( 203200, 463550 ) );
+
+    auto result = engine.FindSnap( moving, 25400, VECTOR2I( 12700, 12700 ) );
+
+    BOOST_REQUIRE( result.has_value() );
+
+    // Quantized to a whole step rather than dropped, and still grid-legal.
+    BOOST_CHECK_EQUAL( result->Offset.y % 12700, 0 );
+    BOOST_CHECK_EQUAL( result->Offset.y, 12700 );
+
+    // Two badges, and they tell the truth: the gaps really do differ by the half step that
+    // could not be spent, so they must not both read 88900.
+    BOOST_REQUIRE_EQUAL( result->Badges.size(), 2 );
+    BOOST_CHECK( result->Badges[0].Vertical );
+    BOOST_CHECK_EQUAL( result->Badges[0].Gap, 82550 ); // 1022350 - (927100 + 12700)
+    BOOST_CHECK_EQUAL( result->Badges[1].Gap, 88900 );
+}
+
+
+// The quantized position must stay on its own side of the gap.  A gap narrower than half a
+// step would be jumped clean over, emitting a negative badge.
+BOOST_AUTO_TEST_CASE( EqualGapSkipsPairsTooTightToQuantize )
+{
+    ALIGNMENT_GUIDE_ENGINE engine;
+
+    // Two neighbours 4 apart on a grid of 10: half a step is 5, wider than the gap.
+    engine.SetNeighbors( { BOX2I( VECTOR2I( 0, 0 ), VECTOR2I( 100, 50 ) ),
+                           BOX2I( VECTOR2I( 104, 0 ), VECTOR2I( 50, 50 ) ) } );
+
+    BOX2I moving( VECTOR2I( 160, 0 ), VECTOR2I( 40, 50 ) );
+
+    auto result = engine.FindSnap( moving, 15, VECTOR2I( 10, 10 ) );
+
+    // Whatever it does or does not snap to, no badge may report a negative distance.
+    if( result )
+    {
+        for( const ALIGNMENT_GUIDE_ENGINE::GAP_BADGE& badge : result->Badges )
+            BOOST_CHECK_GT( badge.Gap, 0 );
+    }
+}
+
+
 BOOST_AUTO_TEST_CASE( GridStepIsPerAxis )
 {
     ALIGNMENT_GUIDE_ENGINE engine;

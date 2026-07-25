@@ -22,6 +22,8 @@
 #include <algorithm>
 #include <cstdlib>
 
+#include <math/util.h>
+
 namespace
 {
 /// Min/max of a box along one axis (axis 0 = X, 1 = Y)
@@ -110,10 +112,26 @@ ALIGNMENT_GUIDE_ENGINE::buildClusters( const BOX2I& aMoving, int aAxis ) const
 
 
 void ALIGNMENT_GUIDE_ENGINE::collectAxisCandidates( const BOX2I& aMoving, int aAxis,
-                                                    const std::vector<CLUSTER>& aClusters,
+                                                    const std::vector<CLUSTER>&  aClusters,
+                                                    int                          aGridStep,
                                                     std::vector<SNAP_CANDIDATE>& aOut ) const
 {
     const SPAN ms = spanOf( aMoving, aAxis );
+
+    // Alignment offsets are never touched here: a guide line claiming two edges are level has
+    // to be telling the truth, so an off-grid alignment is rejected downstream instead.  Every
+    // other kind names a *position* rather than an edge relationship, and quantizing it is
+    // strictly better than dropping it -- schematic bodies are routinely a half step tall, which
+    // puts the exact equal-gap position half a grid step off grid and made equal spacing
+    // unreachable for entire sheets.  Badges are measured off the snapped box, so they report
+    // the gaps that actually result and never claim an equality that isn't there.
+    auto quantize = [aGridStep]( int aDelta )
+    {
+        if( aGridStep <= 0 )
+            return aDelta;
+
+        return KiROUND( double( aDelta ) / aGridStep ) * aGridStep;
+    };
 
     // Edge/center alignment: min-min, min-max, max-min, max-max, center-center.
     // Center-to-edge pairings are deliberately excluded as visual noise.
@@ -138,19 +156,28 @@ void ALIGNMENT_GUIDE_ENGINE::collectAxisCandidates( const BOX2I& aMoving, int aA
         const CLUSTER& right = aClusters[k + 1];
         const int      gap = right.Min - left.Max; // > 0: touching clusters were merged
 
-        // Moving box after the right cluster with the same gap
-        aOut.push_back( { ( right.Max + gap ) - ms.Min, KIND_EQUAL_GAP, k, k + 1, 0 } );
+        // Quantizing moves the box by up to half a step either way, so a gap with less room
+        // than that would land it on the wrong side of its own gap and emit a negative badge.
+        // Drop those pairs rather than render garbage.
+        if( 2 * gap > aGridStep )
+        {
+            // Moving box after the right cluster with the same gap
+            aOut.push_back( { quantize( ( right.Max + gap ) - ms.Min ), KIND_EQUAL_GAP, k, k + 1,
+                              0 } );
 
-        // Moving box before the left cluster with the same gap.  Anchored on the
-        // cluster edge, not on whichever box happened to sort first.
-        aOut.push_back( { ( left.Min - gap ) - ms.Max, KIND_EQUAL_GAP, k + 1, k, 0 } );
+            // Moving box before the left cluster with the same gap.  Anchored on the
+            // cluster edge, not on whichever box happened to sort first.
+            aOut.push_back( { quantize( ( left.Min - gap ) - ms.Max ), KIND_EQUAL_GAP, k + 1, k,
+                              0 } );
+        }
 
         // Moving box centered between the pair, if it fits.  Odd leftover room
-        // truncates, so the two resulting gaps can differ by one unit.
-        if( gap >= ms.Size() )
+        // truncates, so the two resulting gaps can differ by one unit.  A full step of slack
+        // on top, for the same reason the pair above needs half of one.
+        if( gap >= ms.Size() + std::max( 0, aGridStep ) )
         {
             const int targetMin = left.Max + ( gap - ms.Size() ) / 2;
-            aOut.push_back( { targetMin - ms.Min, KIND_BETWEEN, k, k + 1, 0 } );
+            aOut.push_back( { quantize( targetMin - ms.Min ), KIND_BETWEEN, k, k + 1, 0 } );
         }
     }
 
@@ -158,7 +185,7 @@ void ALIGNMENT_GUIDE_ENGINE::collectAxisCandidates( const BOX2I& aMoving, int aA
     for( size_t i = 0; i < m_containers.size(); ++i )
     {
         const SPAN cs = spanOf( m_containers[i], aAxis );
-        aOut.push_back( { cs.Center() - ms.Center(), KIND_CONTAINER, i, i, 0 } );
+        aOut.push_back( { quantize( cs.Center() - ms.Center() ), KIND_CONTAINER, i, i, 0 } );
     }
 }
 
@@ -315,7 +342,10 @@ ALIGNMENT_GUIDE_ENGINE::FindSnap( const BOX2I& aMoving, int aSnapRange,
         // 5 alignment candidates per neighbor, plus up to 3 (2 equal-gap + 1 between)
         // per adjacent cluster pair, of which there are fewer than m_neighbors.size().
         candidates.reserve( 8 * m_neighbors.size() + m_containers.size() );
-        collectAxisCandidates( aMoving, axis, clusters[axis], candidates );
+
+        const int gridStep = aGridStep ? ( ( axis == 0 ) ? aGridStep->x : aGridStep->y ) : 0;
+
+        collectAxisCandidates( aMoving, axis, clusters[axis], gridStep, candidates );
 
         std::optional<SNAP_CANDIDATE> best;
 
@@ -331,6 +361,10 @@ ALIGNMENT_GUIDE_ENGINE::FindSnap( const BOX2I& aMoving, int aSnapRange,
                 // Reject, never round: a rounded offset would leave the item off the
                 // alignment the guide line is about to claim.  Fails closed on a
                 // non-positive step, since a missed rejection means a disconnected net.
+                //
+                // Only alignment candidates can fail this now -- the other kinds were
+                // quantized as they were generated, since they promise a position rather
+                // than that two edges are level.
                 if( g <= 0 || c.Delta % g != 0 )
                     continue;
             }
