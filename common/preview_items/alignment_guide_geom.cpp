@@ -152,7 +152,12 @@ void ALIGNMENT_GUIDE_GEOM::ViewDraw( int aLayer, VIEW* aView ) const
         // take an EDA_UNITS from the frame, as RULER_ITEM does.  The *scale* is not a
         // simplification though -- it comes from the owning editor, or a schematic badge
         // would read 100x small.
-        const wxString text = wxString::Format( wxT( "%.2f" ), badge.Gap / m_iuScale.IU_PER_MM );
+        // The tilde-equals prefix is load-bearing, not decoration: a rounded spacing snap gets
+        // as close as the grid allows, which can leave the gaps in a run visibly unequal.  An
+        // unmarked badge there would read as a claim that they match.
+        const wxString text = wxString::Format( badge.Approximate ? wxT( "≈%.2f" )
+                                                                  : wxT( "%.2f" ),
+                                                badge.Gap / m_iuScale.IU_PER_MM );
         const VECTOR2I extents = font->StringBoundaryLimits( text, textDims.GlyphSize,
                                                              textDims.StrokeWidth, false, false,
                                                              KIFONT::METRICS::Default() );

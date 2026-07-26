@@ -20,6 +20,8 @@
 #define BOOST_TEST_NO_MAIN
 #include <boost/test/unit_test.hpp>
 
+#include <cstdlib>
+
 #include <tool/alignment_guide_engine.h>
 
 BOOST_AUTO_TEST_SUITE( AlignmentGuideEngine )
@@ -625,9 +627,9 @@ BOOST_AUTO_TEST_CASE( GridLegalCandidateBeatsNearerIllegalOne )
 // Real geometry from a KiCad demo, in schematic IU on a 50 mil (12700) grid.  Three
 // hierarchical sheets in a column; the sheet edges sit on *half* steps, because sheet heights
 // are whatever the user dragged them to.  Exact equal spacing here needs a quarter-step move,
-// which no whole-step offset can reach -- so the engine must decline rather than snap to
-// something close and badge it as equal.
-BOOST_AUTO_TEST_CASE( EqualGapDeclinedWhenUnreachableOnGrid )
+// which no whole-step offset can reach -- so the snap falls back to the nearest legal position
+// and every badge it produces must say it is approximate.
+BOOST_AUTO_TEST_CASE( EqualGapFallsBackWhenUnreachableOnGrid )
 {
     ALIGNMENT_GUIDE_ENGINE engine;
 
@@ -641,12 +643,73 @@ BOOST_AUTO_TEST_CASE( EqualGapDeclinedWhenUnreachableOnGrid )
 
     auto result = engine.FindSnap( moving, 25400, VECTOR2I( 12700, 12700 ) );
 
-    // X still aligns (left edges are already level, delta 0), but Y must not move...
     BOOST_REQUIRE( result.has_value() );
-    BOOST_CHECK_EQUAL( result->Offset.y, 0 );
 
-    // ...and nothing may claim an equal spacing that was never achieved.
-    BOOST_CHECK( result->Badges.empty() );
+    // Rounded to a whole step, so the sheet pins stay on grid.
+    BOOST_CHECK_EQUAL( result->Offset.y % 12700, 0 );
+    BOOST_CHECK_EQUAL( result->Offset.y, 12700 );
+
+    // The gaps really do differ by the half step that could not be spent, so each badge reports
+    // its own number.  Only the one that had to be approximated is flagged -- the reference gap
+    // between the two static sheets is exactly what it says, and marking it would be noise.
+    BOOST_REQUIRE_EQUAL( result->Badges.size(), 2 );
+    BOOST_CHECK_EQUAL( result->Badges[0].Gap, 82550 ); // 1022350 - (927100 + 12700)
+    BOOST_CHECK_EQUAL( result->Badges[1].Gap, 88900 );
+    BOOST_CHECK( result->Badges[0].Approximate );
+    BOOST_CHECK( !result->Badges[1].Approximate );
+}
+
+
+// An exact spacing must stay unflagged, and must be preferred over any rounded fallback.
+BOOST_AUTO_TEST_CASE( ExactEqualGapPreferredAndUnflagged )
+{
+    ALIGNMENT_GUIDE_ENGINE engine;
+
+    // Neighbours y:[0,20] and y:[50,70] on a grid of 10: gap 30, all offsets whole steps.
+    engine.SetNeighbors( { BOX2I( VECTOR2I( 0, 0 ), VECTOR2I( 20, 20 ) ),
+                           BOX2I( VECTOR2I( 0, 50 ), VECTOR2I( 20, 20 ) ) } );
+
+    // Equal spacing puts the top at 70+30 = 100; from 110 that is a legal -10.
+    BOX2I moving( VECTOR2I( 0, 110 ), VECTOR2I( 20, 20 ) );
+
+    auto result = engine.FindSnap( moving, 15, VECTOR2I( 10, 10 ) );
+
+    BOOST_REQUIRE( result.has_value() );
+    BOOST_CHECK_EQUAL( result->Offset.y, -10 );
+
+    BOOST_REQUIRE_EQUAL( result->Badges.size(), 2 );
+    BOOST_CHECK_EQUAL( result->Badges[0].Gap, 30 );
+    BOOST_CHECK_EQUAL( result->Badges[1].Gap, 30 );
+    BOOST_CHECK( !result->Badges[0].Approximate );
+    BOOST_CHECK( !result->Badges[1].Approximate );
+}
+
+
+// Rounding must not buy a candidate an unbeatable rank.  A near-miss that rounds to an offset of
+// zero would otherwise win on distance against everything and pin the item where it sits.
+BOOST_AUTO_TEST_CASE( RoundedFallbackRanksByExactDistance )
+{
+    ALIGNMENT_GUIDE_ENGINE engine;
+
+    // A x:[0,20] and B x:[50,70] -> gap 30, plus a third box whose left edge at 96 is a legal
+    // 4 away from the moving box.  Equal spacing wants the moving left edge at 100, i.e. +8,
+    // which rounds to +10 on a grid of 10 -- but its true distance is 8, so the alignment at 4
+    // must win.  Ranked on the rounded delta the two would be 10 against 4 and alignment still
+    // wins; ranked on a delta that rounded to 0 it would not.
+    engine.SetNeighbors( { BOX2I( VECTOR2I( 0, 0 ), VECTOR2I( 20, 20 ) ),
+                           BOX2I( VECTOR2I( 50, 0 ), VECTOR2I( 20, 20 ) ),
+                           BOX2I( VECTOR2I( 96, 0 ), VECTOR2I( 20, 20 ) ) } );
+
+    BOX2I moving( VECTOR2I( 92, 0 ), VECTOR2I( 20, 20 ) );
+
+    auto result = engine.FindSnap( moving, 15, VECTOR2I( 10, 10 ) );
+
+    BOOST_REQUIRE( result.has_value() );
+    BOOST_CHECK_EQUAL( result->Offset.x % 10, 0 );
+
+    // Whatever wins, it may not be a candidate that only looked nearest because rounding
+    // flattered it.
+    BOOST_CHECK( std::abs( result->Offset.x ) <= 15 );
 }
 
 

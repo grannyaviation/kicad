@@ -22,6 +22,8 @@
 #include <algorithm>
 #include <cstdlib>
 
+#include <math/util.h>
+
 namespace
 {
 /// Min/max of a box along one axis (axis 0 = X, 1 = Y)
@@ -50,11 +52,12 @@ bool spansOverlap( const SPAN& aA, const SPAN& aB )
 /// Append a badge measuring the aFrom..aTo gap along aAxis, drawn at aCrossMid on the
 /// cross axis.  Callers decide what "the middle" means for their kind of snap.
 void pushBadge( ALIGNMENT_GUIDE_ENGINE::RESULT& aResult, int aAxis, int aCrossMid, int aFrom,
-                int aTo )
+                int aTo, bool aApproximate )
 {
     ALIGNMENT_GUIDE_ENGINE::GAP_BADGE badge;
     badge.Gap = aTo - aFrom;
     badge.Vertical = ( aAxis == 1 );
+    badge.Approximate = aApproximate;
 
     const int mid = aFrom + badge.Gap / 2;
     badge.Pos = ( aAxis == 0 ) ? VECTOR2I( mid, aCrossMid ) : VECTOR2I( aCrossMid, mid );
@@ -111,9 +114,34 @@ ALIGNMENT_GUIDE_ENGINE::buildClusters( const BOX2I& aMoving, int aAxis ) const
 
 void ALIGNMENT_GUIDE_ENGINE::collectAxisCandidates( const BOX2I& aMoving, int aAxis,
                                                     const std::vector<CLUSTER>&  aClusters,
+                                                    int                          aGridStep,
                                                     std::vector<SNAP_CANDIDATE>& aOut ) const
 {
     const SPAN ms = spanOf( aMoving, aAxis );
+
+    // An exact candidate: Dist == Delta, so it ranks by how far it moves the item, as always.
+    auto push = [&]( int aDelta, int aKind, size_t aN1, size_t aN2, int aOrd )
+    {
+        aOut.push_back( { aDelta, aDelta, aKind, aN1, aN2, aOrd, false } );
+    };
+
+    // A grid-legal fallback for a candidate whose exact position the grid cannot reach.  Emitted
+    // *after* the exact one so an exact spacing always takes a tie, and only when rounding
+    // actually changes something.
+    //
+    // Dist stays the exact distance.  Ranking on the rounded Delta would let a candidate 0.25 of
+    // a step away round to 0 and then beat every real snap with an unbeatable distance of zero,
+    // pinning the item wherever it happened to be.
+    auto pushRounded = [&]( int aDelta, int aKind, size_t aN1, size_t aN2 )
+    {
+        if( aGridStep <= 0 )
+            return;
+
+        const int rounded = KiROUND( double( aDelta ) / aGridStep ) * aGridStep;
+
+        if( rounded != aDelta )
+            aOut.push_back( { rounded, aDelta, aKind, aN1, aN2, 0, true } );
+    };
 
     // Edge/center alignment: min-min, min-max, max-min, max-max, center-center.
     // Center-to-edge pairings are deliberately excluded as visual noise.
@@ -121,11 +149,11 @@ void ALIGNMENT_GUIDE_ENGINE::collectAxisCandidates( const BOX2I& aMoving, int aA
     {
         const SPAN ns = spanOf( m_neighbors[i], aAxis );
 
-        aOut.push_back( { ns.Min - ms.Min, KIND_ALIGN, i, i, ns.Min } );
-        aOut.push_back( { ns.Max - ms.Min, KIND_ALIGN, i, i, ns.Max } );
-        aOut.push_back( { ns.Min - ms.Max, KIND_ALIGN, i, i, ns.Min } );
-        aOut.push_back( { ns.Max - ms.Max, KIND_ALIGN, i, i, ns.Max } );
-        aOut.push_back( { ns.Center() - ms.Center(), KIND_ALIGN, i, i, ns.Center() } );
+        push( ns.Min - ms.Min, KIND_ALIGN, i, i, ns.Min );
+        push( ns.Max - ms.Min, KIND_ALIGN, i, i, ns.Max );
+        push( ns.Min - ms.Max, KIND_ALIGN, i, i, ns.Min );
+        push( ns.Max - ms.Max, KIND_ALIGN, i, i, ns.Max );
+        push( ns.Center() - ms.Center(), KIND_ALIGN, i, i, ns.Center() );
     }
 
     // Equal-spacing: for each pair of adjacent clusters, offer positions that extend
@@ -139,18 +167,35 @@ void ALIGNMENT_GUIDE_ENGINE::collectAxisCandidates( const BOX2I& aMoving, int aA
         const int      gap = right.Min - left.Max; // > 0: touching clusters were merged
 
         // Moving box after the right cluster with the same gap
-        aOut.push_back( { ( right.Max + gap ) - ms.Min, KIND_EQUAL_GAP, k, k + 1, 0 } );
+        const int after = ( right.Max + gap ) - ms.Min;
 
         // Moving box before the left cluster with the same gap.  Anchored on the
         // cluster edge, not on whichever box happened to sort first.
-        aOut.push_back( { ( left.Min - gap ) - ms.Max, KIND_EQUAL_GAP, k + 1, k, 0 } );
+        const int before = ( left.Min - gap ) - ms.Max;
+
+        push( after, KIND_EQUAL_GAP, k, k + 1, 0 );
+        push( before, KIND_EQUAL_GAP, k + 1, k, 0 );
+
+        // Rounding shifts the box by up to half a step either way, so a gap with less room than
+        // that would be jumped clean over, leaving the box on the wrong side of its own gap and
+        // a badge reporting a negative distance.  No fallback for those.
+        if( 2 * gap > aGridStep )
+        {
+            pushRounded( after, KIND_EQUAL_GAP, k, k + 1 );
+            pushRounded( before, KIND_EQUAL_GAP, k + 1, k );
+        }
 
         // Moving box centered between the pair, if it fits.  Odd leftover room
         // truncates, so the two resulting gaps can differ by one unit.
         if( gap >= ms.Size() )
         {
             const int targetMin = left.Max + ( gap - ms.Size() ) / 2;
-            aOut.push_back( { targetMin - ms.Min, KIND_BETWEEN, k, k + 1, 0 } );
+
+            push( targetMin - ms.Min, KIND_BETWEEN, k, k + 1, 0 );
+
+            // A full step of slack, for the reason the pair above needs half of one.
+            if( gap >= ms.Size() + std::max( 0, aGridStep ) )
+                pushRounded( targetMin - ms.Min, KIND_BETWEEN, k, k + 1 );
         }
     }
 
@@ -158,14 +203,16 @@ void ALIGNMENT_GUIDE_ENGINE::collectAxisCandidates( const BOX2I& aMoving, int aA
     for( size_t i = 0; i < m_containers.size(); ++i )
     {
         const SPAN cs = spanOf( m_containers[i], aAxis );
-        aOut.push_back( { cs.Center() - ms.Center(), KIND_CONTAINER, i, i, 0 } );
+
+        push( cs.Center() - ms.Center(), KIND_CONTAINER, i, i, 0 );
+        pushRounded( cs.Center() - ms.Center(), KIND_CONTAINER, i, i );
     }
 }
 
 
 void ALIGNMENT_GUIDE_ENGINE::buildGapBadges( const BOX2I& aSnapped, int aAxis,
                                              const std::vector<CLUSTER>& aClusters, int aRefGap,
-                                             RESULT& aResult ) const
+                                             int aTolerance, RESULT& aResult ) const
 {
     const SPAN ms = spanOf( aSnapped, aAxis );
     const SPAN crossM = spanOf( aSnapped, 1 - aAxis );
@@ -184,17 +231,18 @@ void ALIGNMENT_GUIDE_ENGINE::buildGapBadges( const BOX2I& aSnapped, int aAxis,
 
         // Every gap that matches gets a badge, not only the two the snap was computed from:
         // with four boxes in a column, the equality the user asked for is a property of all
-        // three gaps, and showing one of them proves nothing.  Exact equality only -- a badge
-        // is a claim, and two visibly different numbers under one is a broken promise.
+        // three gaps, and showing one of them proves nothing.
         //
         // A non-positive gap means the moving box overlaps that cluster, which is not a gap.
-        if( gap <= 0 || gap != aRefGap )
+        if( gap <= 0 || std::abs( gap - aRefGap ) > aTolerance )
             continue;
 
         const int crossMid = ( std::max( run[i].CrossMin, run[i + 1].CrossMin )
                                + std::min( run[i].CrossMax, run[i + 1].CrossMax ) ) / 2;
 
-        pushBadge( aResult, aAxis, crossMid, run[i].Max, run[i + 1].Min );
+        // Flagged per gap rather than per snap: within one rounded run some gaps can still come
+        // out exactly equal, and those are not approximations.
+        pushBadge( aResult, aAxis, crossMid, run[i].Max, run[i + 1].Min, gap != aRefGap );
     }
 }
 
@@ -259,7 +307,7 @@ void ALIGNMENT_GUIDE_ENGINE::buildAlignmentLines( const BOX2I& aSnapped, int aAx
 
 void ALIGNMENT_GUIDE_ENGINE::buildGraphics( const BOX2I& aSnapped, int aAxis,
                                             const SNAP_CANDIDATE&       aWinner,
-                                            const std::vector<CLUSTER>& aClusters,
+                                            const std::vector<CLUSTER>& aClusters, int aGridStep,
                                             RESULT&                     aResult ) const
 {
     // See the header for what N1/N2 index in each case: the convention differs per kind.
@@ -281,7 +329,10 @@ void ALIGNMENT_GUIDE_ENGINE::buildGraphics( const BOX2I& aSnapped, int aAxis,
         const int refGap = ( cFar.Max < cNear.Min ) ? ( cNear.Min - cFar.Max )
                                                     : ( cFar.Min - cNear.Max );
 
-        buildGapBadges( aSnapped, aAxis, aClusters, refGap, aResult );
+        // An exact snap badges only genuinely equal gaps.  A rounded one has to allow the step
+        // it could not spend, or the snap it just made would come back unexplained.
+        buildGapBadges( aSnapped, aAxis, aClusters, refGap, aWinner.Approx ? aGridStep : 0,
+                        aResult );
         break;
     }
 
@@ -294,8 +345,8 @@ void ALIGNMENT_GUIDE_ENGINE::buildGraphics( const BOX2I& aSnapped, int aAxis,
         const SPAN crossMov = spanOf( aSnapped, 1 - aAxis );
         const int  crossMid = crossMov.Min + crossMov.Size() / 2;
 
-        pushBadge( aResult, aAxis, crossMid, left.Max, sMov.Min );
-        pushBadge( aResult, aAxis, crossMid, sMov.Max, right.Min );
+        pushBadge( aResult, aAxis, crossMid, left.Max, sMov.Min, aWinner.Approx );
+        pushBadge( aResult, aAxis, crossMid, sMov.Max, right.Min, aWinner.Approx );
         break;
     }
 
@@ -338,13 +389,17 @@ ALIGNMENT_GUIDE_ENGINE::FindSnap( const BOX2I& aMoving, int aSnapRange,
         // per adjacent cluster pair, of which there are fewer than m_neighbors.size().
         candidates.reserve( 8 * m_neighbors.size() + m_containers.size() );
 
-        collectAxisCandidates( aMoving, axis, clusters[axis], candidates );
+        const int gridStep = aGridStep ? ( ( axis == 0 ) ? aGridStep->x : aGridStep->y ) : 0;
+
+        collectAxisCandidates( aMoving, axis, clusters[axis], gridStep, candidates );
 
         std::optional<SNAP_CANDIDATE> best;
 
         for( const SNAP_CANDIDATE& c : candidates )
         {
-            if( std::abs( c.Delta ) > aSnapRange )
+            // Dist, not Delta: a rounded fallback has to be judged on how far the cursor is
+            // from the spacing it wants, not on where rounding sent it.
+            if( std::abs( c.Dist ) > aSnapRange )
                 continue;
 
             if( aGridStep )
@@ -378,7 +433,7 @@ ALIGNMENT_GUIDE_ENGINE::FindSnap( const BOX2I& aMoving, int aSnapRange,
             // candidate always renders as a guide line rather than as badges or a
             // center mark.  Reordering the pushes in collectAxisCandidates silently
             // changes both.
-            if( !best || std::abs( c.Delta ) < std::abs( best->Delta ) )
+            if( !best || std::abs( c.Dist ) < std::abs( best->Dist ) )
                 best = c;
         }
 
@@ -402,7 +457,11 @@ ALIGNMENT_GUIDE_ENGINE::FindSnap( const BOX2I& aMoving, int aSnapRange,
     for( int axis = 0; axis < 2; ++axis )
     {
         if( winners[axis] )
-            buildGraphics( snapped, axis, *winners[axis], clusters[axis], result );
+        {
+            const int gridStep = aGridStep ? ( ( axis == 0 ) ? aGridStep->x : aGridStep->y ) : 0;
+
+            buildGraphics( snapped, axis, *winners[axis], clusters[axis], gridStep, result );
+        }
     }
 
     return result;

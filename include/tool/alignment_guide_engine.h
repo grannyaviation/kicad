@@ -41,6 +41,11 @@ public:
         VECTOR2I Pos;      ///< World position of the gap midpoint
         int      Gap;      ///< Gap size in world units
         bool     Vertical; ///< True if the gap is measured along Y
+
+        /// This gap is not exactly equal to the others in the run: the grid had no legal
+        /// position that would have made them equal, so the snap is a best effort.  Renderers
+        /// must mark it, or the badge claims an equality it does not have.
+        bool Approximate = false;
     };
 
     struct RESULT
@@ -75,14 +80,15 @@ public:
      *                   step are rejected outright.  Callers whose items must stay on a
      *                   grid (schematic pins) pass it.  Three things to know:
      *
-     *                   - offsets are rejected, never rounded, for every kind of snap: a
-     *                     rounded offset would leave the item where the guide says it is not.
-     *                     Quantizing the equal-gap kinds was tried and reverted -- it made
-     *                     the snap fire on geometry where exact equality is unreachable, and
-     *                     a badge that reads 9.53 next to one reading 8.89 is worse than no
-     *                     badge.  A schematic whose bodies sit on half steps may simply have
-     *                     no legal equal-spacing position on a coarse grid; a finer grid is
-     *                     the answer, not a rounder number;
+     *                   - an *alignment* offset is rejected, never rounded: a guide line
+     *                     claiming two edges are level has to be telling the truth.  A spacing
+     *                     offset gets a rounded fallback instead, because a schematic's bodies
+     *                     routinely sit on half steps and rejecting outright left equal
+     *                     spacing firing on 9 motions out of 1819 on a real sheet.  The
+     *                     fallback is ranked by the distance to the position it actually
+     *                     wants, so rounding cannot make it beat nearer candidates, and its
+     *                     badges come back flagged Approximate so nothing claims an equality
+     *                     the grid refused;
      *                   - a non-positive component rejects every candidate on that axis,
      *                     so a zero step degrades to "guides don't engage" rather than to
      *                     "every candidate is legal";
@@ -122,10 +128,17 @@ private:
     struct SNAP_CANDIDATE
     {
         int    Delta;  ///< Offset along the axis to reach this candidate
+
+        /// Distance used for ranking and the range test, which is *not* always |Delta|.  A
+        /// grid-legal fallback is offered at a rounded Delta but must still be judged on how
+        /// far the cursor is from the position it actually wants, or rounding a near-miss down
+        /// to a Delta of 0 would make it beat every real candidate and pin the item in place.
+        int    Dist;
         int    Kind;   ///< KIND_* — drives which guide graphics get built
         size_t N1;     ///< See below — meaning depends on Kind
         size_t N2;
         int    Ord;    ///< Guide ordinate along the axis (KIND_ALIGN), in post-snap coords
+        bool   Approx; ///< Delta was rounded onto the grid; exact was unreachable
     };
 
     // What N1/N2 index, per kind.  There is no single convention; each generator
@@ -150,18 +163,23 @@ private:
     /// Neighbors that cross-overlap aMoving, merged along aAxis, ordered ascending.
     std::vector<CLUSTER> buildClusters( const BOX2I& aMoving, int aAxis ) const;
 
+    /// @param aGridStep step for this axis, or 0 for unconstrained.  Exact candidates are
+    ///                  emitted regardless; where the step makes an exact spacing unreachable a
+    ///                  rounded fallback is emitted after it, flagged Approx.
     void collectAxisCandidates( const BOX2I& aMoving, int aAxis,
-                                const std::vector<CLUSTER>& aClusters,
+                                const std::vector<CLUSTER>& aClusters, int aGridStep,
                                 std::vector<SNAP_CANDIDATE>& aOut ) const;
 
     void buildGraphics( const BOX2I& aSnapped, int aAxis, const SNAP_CANDIDATE& aWinner,
-                        const std::vector<CLUSTER>& aClusters, RESULT& aResult ) const;
+                        const std::vector<CLUSTER>& aClusters, int aGridStep,
+                        RESULT& aResult ) const;
 
-    /// A badge on every gap in the run exactly equal to aRefGap -- with three or more boxes in
-    /// line, the equality is a property of all the gaps, not just the pair the snap was
-    /// computed from.
+    /// A badge on every gap in the run matching aRefGap to within aTolerance -- with three or
+    /// more boxes in line, the equality is a property of all the gaps, not just the pair the
+    /// snap was computed from.  Pass a tolerance of 0 for an exact snap; anything a rounded
+    /// fallback lands on is flagged Approximate per gap.
     void buildGapBadges( const BOX2I& aSnapped, int aAxis, const std::vector<CLUSTER>& aClusters,
-                         int aRefGap, RESULT& aResult ) const;
+                         int aRefGap, int aTolerance, RESULT& aResult ) const;
 
     /// Guide lines for an alignment snap: one per ordinate the snapped box shares with a
     /// neighbor, each spanning every box sitting on it.
