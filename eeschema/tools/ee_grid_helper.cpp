@@ -515,9 +515,13 @@ void EE_GRID_HELPER::CollectAlignmentNeighbors( const SCH_SELECTION& aSkip )
     std::vector<BOX2I> boxes;
     const VECTOR2D     ref( m_moveContext->OriginalBBox.Centre() );
 
+    // One sweep, two rules.  A symbol is made of pins and graphics; a sheet is made of symbols
+    // and subsheets.  Neither set of targets means anything in the other editor.
+    const bool symbolEditor = inSymbolEditor();
+
     for( SCH_ITEM* item : queryVisible( viewport, aSkip ) )
     {
-        const std::optional<BOX2I> box = GetAlignmentBox( item );
+        const std::optional<BOX2I> box = symbolEditor ? GetSymbolAlignmentBox( item ) : GetAlignmentBox( item );
 
         if( !box )
             continue;
