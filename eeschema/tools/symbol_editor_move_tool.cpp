@@ -427,6 +427,11 @@ bool SYMBOL_EDITOR_MOVE_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, SCH_COM
                 updateItem( item, false );
             }
 
+            // After the move, so the warning describes where the pins are now.  This is the
+            // editor where an off-grid pin actually gets created -- every schematic that uses
+            // the part inherits it.
+            grid.ShowOffGridWarnings( selection, snapLayer );
+
             m_toolMgr->PostEvent( EVENTS::SelectedItemsMoved );
         }
         //------------------------------------------------------------------------

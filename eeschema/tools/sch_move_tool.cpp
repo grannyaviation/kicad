@@ -997,6 +997,11 @@ bool SCH_MOVE_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, SCH_COMMIT* aComm
             performItemMove( selection, delta, aCommit, xBendCount, yBendCount, grid );
             prevPos = m_cursor;
 
+            // After the move, not before: the warning has to describe where the items are now.
+            // snapLayer is the grid they were just placed on, which is the only grid the
+            // question "will these pins land on it" can sensibly be asked about.
+            grid.ShowOffGridWarnings( selection, snapLayer );
+
             std::vector<SCH_ITEM*> previewItems;
 
             for( EDA_ITEM* it : selection )

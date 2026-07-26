@@ -85,6 +85,28 @@ public:
     static std::optional<BOX2I> GetSymbolAlignmentBox( const EDA_ITEM* aItem );
 
     /**
+     * True when a point of aItem that has to land on the grid does not.
+     *
+     * Reads SCH_ITEM::GetConnectionPoints() -- the same points ERC's off-grid endpoint test
+     * looks at, i.e. pins for a symbol, sheet pins for a sheet, both ends of a wire.  Items with
+     * nothing connectable (graphics, text) can never be off grid in the sense that matters, so
+     * they never warn.
+     *
+     * @param aGrid grid step; a non-positive component disables the check on that axis
+     */
+    static bool IsOffGrid( const EDA_ITEM* aItem, const VECTOR2I& aGrid,
+                           const VECTOR2I& aOrigin = VECTOR2I( 0, 0 ) );
+
+    /**
+     * Paint a warning glyph on every item of aSelection that IsOffGrid() on aGrid.
+     *
+     * Call it once per motion during a move, after the items have been repositioned: a symbol
+     * that was merely *placed* off grid loses its warning as soon as the move snaps it back,
+     * and only one whose pin pitch does not divide the grid keeps it for the whole drag.
+     */
+    void ShowOffGridWarnings( const SELECTION& aSelection, GRID_HELPER_GRIDS aGrid );
+
+    /**
      * Collect neighbour bounding boxes for smart alignment guides.
      * Call once at drag start, after SetMoveContext().
      *

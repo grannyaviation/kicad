@@ -78,6 +78,7 @@ public:
         m_anchors.clear();
         m_moveContext = std::nullopt;
         m_alignGuidePreview.ClearGuides();
+        SetOffGridWarnings( {} );
     }
 
     /**
@@ -100,7 +101,17 @@ public:
         m_moveContext = std::nullopt;
         m_snapManager.GetAlignmentEngine().Clear();
         m_alignGuidePreview.ClearGuides();
+        SetOffGridWarnings( {} );
     }
+
+    /**
+     * Paint a warning glyph at each of aPositions, replacing any already showing.
+     *
+     * Separate from the alignment guides on purpose: clearAlignmentGuides() fires mid-drag
+     * (axis lock, arrow-key nudge) and must not take the warnings with it -- an item that
+     * cannot sit on the grid stays that way whether or not anything is aligning to it.
+     */
+    void SetOffGridWarnings( std::vector<VECTOR2I> aPositions );
 
     /// Remove any painted alignment guides.  Cheap no-op when none are showing.
     ///

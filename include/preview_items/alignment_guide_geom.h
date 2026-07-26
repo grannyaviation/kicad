@@ -50,6 +50,16 @@ public:
     void ClearGuides();
     bool HasGuides() const { return m_hasGuides; }
 
+    /**
+     * Warning glyphs, one per position, for items that cannot sit on the working grid.
+     *
+     * Kept apart from the guides rather than folded into RESULT: being off grid is a property
+     * of the item, not of any alignment, so it must survive ClearGuides() -- which fires
+     * mid-drag whenever an axis lock overrides the cursor.
+     */
+    void SetOffGridWarnings( std::vector<VECTOR2I> aPositions );
+    bool HasOffGridWarnings() const { return !m_offGrid.empty(); }
+
     void SetColor( const COLOR4D& aColor ) { m_color = aColor; }
 
     const BOX2I ViewBBox() const override;
@@ -65,7 +75,9 @@ public:
 private:
     ALIGNMENT_GUIDE_ENGINE::RESULT m_guides;
     bool                           m_hasGuides;
+    std::vector<VECTOR2I>          m_offGrid;
     COLOR4D                        m_color;
+    COLOR4D                        m_warningColor;
     const EDA_IU_SCALE&            m_iuScale;
 };
 

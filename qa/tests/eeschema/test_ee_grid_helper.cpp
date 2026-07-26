@@ -221,4 +221,53 @@ BOOST_AUTO_TEST_CASE( TheTwoAlignmentRulesDoNotOverlap )
     BOOST_CHECK( !EE_GRID_HELPER::GetSymbolAlignmentBox( &sheet ).has_value() );
 }
 
+
+// The "!" warning shown while moving an item fires off this predicate.  A wrong answer is worse
+// than no answer: a false positive marks a perfectly good library as broken, a false negative is
+// exactly the silence that let a half-grid pin pitch go unnoticed in the first place.
+BOOST_AUTO_TEST_CASE( OffGridDetection )
+{
+    const VECTOR2I grid( 100, 100 );
+
+    SCH_LINE onGrid( VECTOR2I( 0, 0 ), LAYER_WIRE );
+    onGrid.SetEndPoint( VECTOR2I( 200, 300 ) );
+    BOOST_CHECK( !EE_GRID_HELPER::IsOffGrid( &onGrid, grid ) );
+
+    SCH_LINE offGrid( VECTOR2I( 0, 0 ), LAYER_WIRE );
+    offGrid.SetEndPoint( VECTOR2I( 250, 300 ) );
+    BOOST_CHECK( EE_GRID_HELPER::IsOffGrid( &offGrid, grid ) );
+
+    // C++ truncates the modulo toward zero, so -250 % 100 is -50 rather than 50.  Still non-zero,
+    // but the sign flip is the kind of thing that silently disables a check on the left half of
+    // a sheet.
+    SCH_LINE negative( VECTOR2I( -200, -300 ), LAYER_WIRE );
+    negative.SetEndPoint( VECTOR2I( -250, -300 ) );
+    BOOST_CHECK( EE_GRID_HELPER::IsOffGrid( &negative, grid ) );
+
+    // A notes line is not connectable, so its endpoints answer to nothing.
+    SCH_LINE notes( VECTOR2I( 0, 0 ), LAYER_NOTES );
+    notes.SetEndPoint( VECTOR2I( 250, 300 ) );
+    BOOST_CHECK( !EE_GRID_HELPER::IsOffGrid( &notes, grid ) );
+
+    // A library pin has no GetConnectionPoints(), so only the SCH_PIN_T branch can catch it --
+    // and the symbol editor is where an off-grid pin gets created in the first place.
+    SCH_PIN pin( nullptr );
+    pin.SetPosition( VECTOR2I( 150, 0 ) );
+    BOOST_CHECK( EE_GRID_HELPER::IsOffGrid( &pin, grid ) );
+
+    pin.SetPosition( VECTOR2I( 100, 0 ) );
+    BOOST_CHECK( !EE_GRID_HELPER::IsOffGrid( &pin, grid ) );
+
+    // A grid origin shifts what counts as legal; ignoring it would warn about everything on a
+    // sheet whose origin is not (0, 0).
+    pin.SetPosition( VECTOR2I( 150, 0 ) );
+    BOOST_CHECK( !EE_GRID_HELPER::IsOffGrid( &pin, grid, VECTOR2I( 50, 0 ) ) );
+
+    // Text carries no connection, and a zero grid must not divide by zero.
+    SCH_TEXT text;
+    text.SetPosition( VECTOR2I( 150, 150 ) );
+    BOOST_CHECK( !EE_GRID_HELPER::IsOffGrid( &text, grid ) );
+    BOOST_CHECK( !EE_GRID_HELPER::IsOffGrid( &offGrid, VECTOR2I( 0, 0 ) ) );
+}
+
 BOOST_AUTO_TEST_SUITE_END()

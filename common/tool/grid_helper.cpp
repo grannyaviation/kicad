@@ -153,6 +153,18 @@ void GRID_HELPER::clearAlignmentGuides()
 }
 
 
+void GRID_HELPER::SetOffGridWarnings( std::vector<VECTOR2I> aPositions )
+{
+    // Guarded so the common case -- nothing off grid, called on every mouse motion -- costs no
+    // VIEW::Update.
+    if( !m_toolMgr || ( aPositions.empty() && !m_alignGuidePreview.HasOffGridWarnings() ) )
+        return;
+
+    m_alignGuidePreview.SetOffGridWarnings( std::move( aPositions ) );
+    m_toolMgr->GetView()->Update( &m_alignGuidePreview, KIGFX::GEOMETRY );
+}
+
+
 std::optional<GRID_HELPER::GUIDE_SNAP>
 GRID_HELPER::computeAlignmentGuideSnap( const VECTOR2I& aPos, int aSnapRange,
                                         const std::optional<VECTOR2I>& aGridStep )

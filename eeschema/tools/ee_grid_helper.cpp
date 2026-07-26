@@ -361,6 +361,63 @@ SCH_ITEM* EE_GRID_HELPER::GetSnapped() const
 }
 
 
+bool EE_GRID_HELPER::IsOffGrid( const EDA_ITEM* aItem, const VECTOR2I& aGrid,
+                                const VECTOR2I& aOrigin )
+{
+    if( aGrid.x <= 0 || aGrid.y <= 0 )
+        return false;
+
+    std::vector<VECTOR2I> points;
+
+    // A library pin has no GetConnectionPoints() of its own -- SCH_PIN only becomes connectable
+    // through a parent symbol -- yet in the symbol editor it is the one thing that has to be on
+    // grid, because every schematic that ever uses the part inherits the position.
+    if( aItem->Type() == SCH_PIN_T )
+    {
+        points.push_back( static_cast<const SCH_PIN*>( aItem )->GetPosition() );
+    }
+    else if( const SCH_ITEM* item = dynamic_cast<const SCH_ITEM*>( aItem );
+             item && item->IsConnectable() )
+    {
+        // Gated on IsConnectable() because SCH_LINE hands back its endpoints whatever layer it
+        // is on, and a notes line landing between grid points connects to nothing and breaks
+        // nothing.
+        points = item->GetConnectionPoints();
+    }
+
+    return std::any_of( points.begin(), points.end(),
+                        [&]( const VECTOR2I& aPt )
+                        {
+                            return ( aPt.x - aOrigin.x ) % aGrid.x != 0
+                                   || ( aPt.y - aOrigin.y ) % aGrid.y != 0;
+                        } );
+}
+
+
+void EE_GRID_HELPER::ShowOffGridWarnings( const SELECTION& aSelection, GRID_HELPER_GRIDS aGrid )
+{
+    const VECTOR2D gridSize = GetGridSize( aGrid );
+    const VECTOR2I grid( KiROUND( gridSize.x ), KiROUND( gridSize.y ) );
+    const VECTOR2I origin = GetOrigin();
+
+    std::vector<VECTOR2I> markers;
+
+    for( const EDA_ITEM* item : aSelection )
+    {
+        if( IsOffGrid( item, grid, origin ) )
+        {
+            // Top-right of the whole item, fields and all: outside the body, where it cannot be
+            // mistaken for part of the symbol, and clear of the guide lines that run along the
+            // body edges.
+            const BOX2I box = item->GetBoundingBox();
+            markers.emplace_back( box.GetRight(), box.GetTop() );
+        }
+    }
+
+    SetOffGridWarnings( std::move( markers ) );
+}
+
+
 VECTOR2I EE_GRID_HELPER::AlignPointToGuides( const VECTOR2I&      aPoint,
                                              const SCH_SELECTION* aCollectSkip )
 {

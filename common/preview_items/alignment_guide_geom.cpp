@@ -39,6 +39,9 @@ ALIGNMENT_GUIDE_GEOM::ALIGNMENT_GUIDE_GEOM( const EDA_IU_SCALE& aIuScale ) :
         // COLOR4D( EDA_COLOR_T ) always comes back fully opaque, which is too heavy for an
         // overlay, so re-apply the previous 0.9 alpha.
         m_color( COLOR4D( RED ).WithAlpha( 0.9 ) ),
+        // Deliberately not the guide colour: a guide says "this lines up", a warning says "this
+        // cannot line up".  Amber reads as a warning on both the light and the dark canvas.
+        m_warningColor( COLOR4D( DARKORANGE ).WithAlpha( 0.9 ) ),
         m_iuScale( aIuScale )
 {
 }
@@ -55,6 +58,12 @@ void ALIGNMENT_GUIDE_GEOM::ClearGuides()
 {
     m_guides = ALIGNMENT_GUIDE_ENGINE::RESULT();
     m_hasGuides = false;
+}
+
+
+void ALIGNMENT_GUIDE_GEOM::SetOffGridWarnings( std::vector<VECTOR2I> aPositions )
+{
+    m_offGrid = std::move( aPositions );
 }
 
 
@@ -80,7 +89,7 @@ std::vector<int> ALIGNMENT_GUIDE_GEOM::ViewGetLayers() const
 void ALIGNMENT_GUIDE_GEOM::ViewDraw( int aLayer, VIEW* aView ) const
 {
     // Called every frame while dragging; bail before touching the GAL when idle.
-    if( !m_hasGuides )
+    if( !m_hasGuides && m_offGrid.empty() )
         return;
 
     GAL&             gal = *aView->GetGAL();
@@ -116,13 +125,40 @@ void ALIGNMENT_GUIDE_GEOM::ViewDraw( int aLayer, VIEW* aView ) const
         DrawDashedLine( gal, clipped, dashSize );
     }
 
-    if( m_guides.Badges.empty() )
+    if( m_guides.Badges.empty() && m_offGrid.empty() )
         return;
 
     KIFONT::FONT*                   font = KIFONT::FONT::GetFont();
     const PREVIEW::TEXT_DIMS        textDims = PREVIEW::GetConstantGlyphHeight( &gal );
     const int                       padding = aView->ToWorld( 3 );
     const int                       tick = aView->ToWorld( 4 );
+
+    TEXT_ATTRIBUTES glyphAttrs;
+    glyphAttrs.m_Size = textDims.GlyphSize;
+    glyphAttrs.m_StrokeWidth = textDims.StrokeWidth;
+    glyphAttrs.m_Halign = GR_TEXT_H_ALIGN_CENTER;
+    glyphAttrs.m_Valign = GR_TEXT_V_ALIGN_CENTER;
+    glyphAttrs.m_Mirrored = gal.IsFlippedX(); // Prevent text mirroring when the view is flipped
+
+    if( !m_offGrid.empty() )
+    {
+        // Constant on screen, like everything else here, so it stays legible at any zoom rather
+        // than growing into the symbol it is annotating.
+        const int radius = std::max( textDims.GlyphSize.y, padding * 2 );
+
+        gal.SetIsFill( false );
+        gal.SetIsStroke( true );
+        gal.SetStrokeColor( m_warningColor );
+
+        for( const VECTOR2I& pos : m_offGrid )
+        {
+            gal.DrawCircle( pos, radius );
+            font->Draw( &gal, wxT( "!" ), pos, glyphAttrs, KIFONT::METRICS::Default() );
+        }
+    }
+
+    if( m_guides.Badges.empty() )
+        return;
 
     // A reference string, not the number itself, sets the pill size.  Sizing it to the text
     // makes "8.89" and "10.16" render as visibly different badges, which reads as two kinds of
@@ -131,13 +167,6 @@ void ALIGNMENT_GUIDE_GEOM::ViewDraw( int aLayer, VIEW* aView ) const
     const VECTOR2I refExtents = font->StringBoundaryLimits( wxT( "00.00" ), textDims.GlyphSize,
                                                             textDims.StrokeWidth, false, false,
                                                             KIFONT::METRICS::Default() );
-
-    TEXT_ATTRIBUTES textAttrs;
-    textAttrs.m_Size = textDims.GlyphSize;
-    textAttrs.m_StrokeWidth = textDims.StrokeWidth;
-    textAttrs.m_Halign = GR_TEXT_H_ALIGN_CENTER;
-    textAttrs.m_Valign = GR_TEXT_V_ALIGN_CENTER;
-    textAttrs.m_Mirrored = gal.IsFlippedX(); // Prevent text mirroring when the view is flipped
 
     for( const ALIGNMENT_GUIDE_ENGINE::GAP_BADGE& badge : m_guides.Badges )
     {
@@ -201,6 +230,6 @@ void ALIGNMENT_GUIDE_GEOM::ViewDraw( int aLayer, VIEW* aView ) const
         gal.SetIsFill( false );
         gal.SetIsStroke( true );
         gal.SetStrokeColor( m_color );
-        font->Draw( &gal, text, badge.Pos, textAttrs, KIFONT::METRICS::Default() );
+        font->Draw( &gal, text, badge.Pos, glyphAttrs, KIFONT::METRICS::Default() );
     }
 }
