@@ -517,8 +517,9 @@ void EE_GRID_HELPER::CollectAlignmentNeighbors( const SCH_SELECTION& aSkip )
     const VECTOR2D     ref( m_moveContext->OriginalBBox.Centre() );
 
     // One sweep, two rules.  A symbol is made of pins and graphics; a sheet is made of symbols
-    // and subsheets.  Neither set of targets means anything in the other editor.
-    const bool symbolEditor = inSymbolEditor() != nullptr;
+    // and subsheets.  Neither set of targets means anything in the other editor.  The frame
+    // itself, not a bool: the container below needs its unit and body style.
+    SYMBOL_EDIT_FRAME* symbolEditor = inSymbolEditor();
 
     for( SCH_ITEM* item : queryVisible( viewport, aSkip ) )
     {
@@ -564,6 +565,39 @@ void EE_GRID_HELPER::CollectAlignmentNeighbors( const SCH_SELECTION& aSkip )
     }
 
     engine.SetNeighbors( std::move( boxes ) );
+
+    // Containers: the area the moving item can be centred inside.  Mirrors the board outline
+    // pcbnew feeds.  Computed once per drag, like the sweep above.
+    if( symbolEditor )
+    {
+        // The body outline the user drew around the pins.  Pins excluded: a container is the
+        // drawn area, and pins stick out of it by their length on every side, so including them
+        // would centre a graphic against an edge nobody sees.  Private items likewise.
+        if( LIB_SYMBOL* symbol = symbolEditor->GetCurSymbol() )
+        {
+            const BOX2I body = symbol->GetBodyBoundingBox( symbolEditor->GetUnit(),
+                                                           symbolEditor->GetBodyStyle(), false,
+                                                           false );
+
+            // A symbol with no graphics yet leaves a default-constructed box, which the engine
+            // would read as a real container at the origin.
+            if( body.IsValid() )
+                engine.SetContainers( { body } );
+        }
+    }
+    else if( SCH_BASE_FRAME* frame = dynamic_cast<SCH_BASE_FRAME*>( m_toolMgr->GetToolHolder() ) )
+    {
+        // The drawing sheet page.  Reached through the frame rather than GetModel(): no eeschema
+        // tool casts GetModel(), so its type here is not something to bet a cast on.
+        if( SCH_SCREEN* screen = frame->GetScreen() )
+        {
+            // Page origin is (0, 0) by KiCad convention and the sheet grows right and down.
+            const VECTOR2D size = screen->GetPageSettings().GetSizeIU( schIUScale.IU_PER_MILS );
+
+            if( size.x > 0 && size.y > 0 )
+                engine.SetContainers( { BOX2I( VECTOR2I( 0, 0 ), VECTOR2I( KiROUND( size ) ) ) } );
+        }
+    }
 }
 
 
