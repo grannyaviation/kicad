@@ -96,7 +96,12 @@ std::optional<BOX2I> CellAt( const std::vector<SEG>& aSegments, const VECTOR2I& 
 
         if( vertical )
         {
-            if( aPoint.y < std::min( seg.A.y, seg.B.y ) || aPoint.y > std::max( seg.A.y, seg.B.y ) )
+            // Exclusive at both ends, like every other comparison here.  A partial divider whose
+            // endpoint merely touches this ordinate encloses nothing at it -- KiCad's default
+            // title block has exactly that T-junction, a full-width rule meeting a short column
+            // divider, and counting it would report a cell spanning two rows in one axis and one
+            // row's width in the other.
+            if( aPoint.y <= std::min( seg.A.y, seg.B.y ) || aPoint.y >= std::max( seg.A.y, seg.B.y ) )
                 continue;
 
             // Strict: a segment through aPoint belongs to neither side.
@@ -107,7 +112,8 @@ std::optional<BOX2I> CellAt( const std::vector<SEG>& aSegments, const VECTOR2I& 
         }
         else
         {
-            if( aPoint.x < std::min( seg.A.x, seg.B.x ) || aPoint.x > std::max( seg.A.x, seg.B.x ) )
+            // Exclusive, as above.
+            if( aPoint.x <= std::min( seg.A.x, seg.B.x ) || aPoint.x >= std::max( seg.A.x, seg.B.x ) )
                 continue;
 
             if( seg.A.y > aPoint.y && ( !bottom || seg.A.y < *bottom ) )

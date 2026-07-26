@@ -230,4 +230,27 @@ BOOST_AUTO_TEST_CASE( CellAtIgnoresNonAxisAlignedSegments )
     BOOST_CHECK_EQUAL( cell->GetEnd(), VECTOR2I( 10, 10 ) );
 }
 
+// A T-junction: a partial divider whose endpoint lands on a full-width one.  The partial divider
+// separates nothing at the junction coordinate, so it must not become a wall there -- KiCad's own
+// default title block has this shape, a short column divider meeting a full-width row rule.
+BOOST_AUTO_TEST_CASE( CellAtIgnoresADividerThatOnlyTouchesThePoint )
+{
+    std::vector<SEG> segs = { SEG( VECTOR2I( 0, 0 ), VECTOR2I( 100, 0 ) ),
+                              SEG( VECTOR2I( 100, 0 ), VECTOR2I( 100, 100 ) ),
+                              SEG( VECTOR2I( 100, 100 ), VECTOR2I( 0, 100 ) ),
+                              SEG( VECTOR2I( 0, 100 ), VECTOR2I( 0, 0 ) ),
+                              SEG( VECTOR2I( 0, 50 ), VECTOR2I( 100, 50 ) ) };
+
+    // Spans only the upper half; its lower endpoint touches the full-width rule at y = 50.
+    segs.emplace_back( VECTOR2I( 50, 0 ), VECTOR2I( 50, 50 ) );
+
+    // On the full-width rule, which is excluded by the strict rule, so the cell is the union of
+    // the two rows.  The partial vertical must not narrow it: below y = 50 it does not exist.
+    const std::optional<BOX2I> cell = ALIGN_GEOM::CellAt( segs, VECTOR2I( 75, 50 ) );
+
+    BOOST_REQUIRE( cell.has_value() );
+    BOOST_CHECK_EQUAL( cell->GetOrigin(), VECTOR2I( 0, 0 ) );
+    BOOST_CHECK_EQUAL( cell->GetEnd(), VECTOR2I( 100, 100 ) );
+}
+
 BOOST_AUTO_TEST_SUITE_END()
