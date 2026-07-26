@@ -86,6 +86,11 @@ void ALIGNMENT_GUIDE_GEOM::ViewDraw( int aLayer, VIEW* aView ) const
     GAL&             gal = *aView->GetGAL();
     GAL_SCOPED_ATTRS scopedAttrs( gal, GAL_SCOPED_ATTRS::STROKE_FILL );
 
+    // Frontmost, as RULER_ITEM does.  The GAL depth-tests, and everything drawn in one ViewDraw
+    // shares a depth unless told otherwise -- which is enough for a filled shape to swallow text
+    // drawn immediately after it at the same spot.
+    gal.SetLayerDepth( gal.GetMinDepth() );
+
     // Everything below is sized with VIEW::ToWorld( pixels ) so it stays constant on screen,
     // as CONSTRUCTION_GEOM does for its dashes and crosses.
     gal.SetIsStroke( true );
@@ -152,47 +157,52 @@ void ALIGNMENT_GUIDE_GEOM::ViewDraw( int aLayer, VIEW* aView ) const
                                                              textDims.StrokeWidth, false, false,
                                                              KIFONT::METRICS::Default() );
 
-        // A dimension line spanning the measured gap, capped with perpendicular ticks.  Without
-        // it the pill is a bare number floating between two symbols with nothing saying which
-        // distance it belongs to -- and with two equal gaps on screen, that is the whole point.
         const VECTOR2I dir = badge.Vertical ? VECTOR2I( 0, 1 ) : VECTOR2I( 1, 0 );
         const VECTOR2I perp = badge.Vertical ? VECTOR2I( 1, 0 ) : VECTOR2I( 0, 1 );
         const VECTOR2I half = dir * ( badge.Gap / 2 );
 
+        // Half-extents of the label box, sized from the reference string so badges stay the
+        // same size whatever their digit count.
+        const VECTOR2I halfBox( std::max( extents.x, refExtents.x ) / 2 + padding,
+                                std::max( extents.y, refExtents.y ) / 2 + padding );
+
         gal.SetIsFill( false );
         gal.SetIsStroke( true );
         gal.SetStrokeColor( m_color );
-        gal.DrawLine( badge.Pos - half, badge.Pos + half );
+
+        // A dimension line spanning the measured gap, capped with perpendicular end ticks.
+        // Without it the number floats between two symbols with nothing saying which distance
+        // it belongs to -- and with equal gaps on screen, that is the whole point.  It stops
+        // short of the label rather than running under it, since there is no fill to mask it.
+        const VECTOR2I inner = dir * ( badge.Vertical ? halfBox.y : halfBox.x );
+
+        if( ( badge.Gap / 2 ) > ( badge.Vertical ? halfBox.y : halfBox.x ) )
+        {
+            gal.DrawLine( badge.Pos - half, badge.Pos - inner );
+            gal.DrawLine( badge.Pos + inner, badge.Pos + half );
+        }
+
         gal.DrawLine( badge.Pos - half - perp * tick, badge.Pos - half + perp * tick );
         gal.DrawLine( badge.Pos + half - perp * tick, badge.Pos + half + perp * tick );
 
-        // A filled rounded segment as thick as the text is a pill-shaped badge in one call.
-        // The round caps supply the horizontal padding.  Drawn after the line so it masks the
-        // middle of it, as a dimension label does.
-        const VECTOR2I halfLen( std::max( extents.x, refExtents.x ) / 2, 0 );
-        const int      thickness = std::max( extents.y, refExtents.y ) + 2 * padding;
+        // Dashed outline, no fill: the same visual language as the guide lines, and nothing
+        // that can hide the number behind it.
+        const VECTOR2I tl( badge.Pos.x - halfBox.x, badge.Pos.y - halfBox.y );
+        const VECTOR2I tr( badge.Pos.x + halfBox.x, badge.Pos.y - halfBox.y );
+        const VECTOR2I br( badge.Pos.x + halfBox.x, badge.Pos.y + halfBox.y );
+        const VECTOR2I bl( badge.Pos.x - halfBox.x, badge.Pos.y + halfBox.y );
 
-        // Opaque, unlike the lines: the badge sits on top of the reference designator more
-        // often than not, and at 0.9 the designator reads straight through the number.
-        gal.SetIsStroke( false );
-        gal.SetIsFill( true );
-        gal.SetFillColor( m_color.WithAlpha( 1.0 ) );
-        gal.DrawSegment( badge.Pos - halfLen, badge.Pos + halfLen, thickness );
+        DrawDashedLine( gal, SEG( tl, tr ), dashSize );
+        DrawDashedLine( gal, SEG( tr, br ), dashSize );
+        DrawDashedLine( gal, SEG( br, bl ), dashSize );
+        DrawDashedLine( gal, SEG( bl, tl ), dashSize );
 
-        // Same trick RULER_ITEM uses for its drop shadows: black on light, white on dark.
-        // Which is white here, KiCad red being a brightness of 0.15.
-        const COLOR4D textColor = PREVIEW::GetShadowColor( m_color );
-
-        // Stroke *and* fill, both set to it.  A stroke font paints glyphs with the stroke
-        // colour and an outline font fills them, and which one FONT::GetFont() hands back
-        // depends on the user's font preference -- so setting only the stroke leaves an
-        // outline font drawing the number in whatever the fill was last set to, which is the
-        // red the pill was just filled with.  Red on red, and the badge reads as a blank
-        // lozenge.
-        gal.SetIsFill( true );
+        // The guide colour, not a contrasting one: with the fill gone the number sits on the
+        // canvas background, so it has to match the lines rather than the vanished pill.
+        // Stroke-only, which is what the default stroke font paints with.
+        gal.SetIsFill( false );
         gal.SetIsStroke( true );
-        gal.SetFillColor( textColor );
-        gal.SetStrokeColor( textColor );
+        gal.SetStrokeColor( m_color );
         font->Draw( &gal, text, badge.Pos, textAttrs, KIFONT::METRICS::Default() );
     }
 }
