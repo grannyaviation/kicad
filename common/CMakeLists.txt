@@ -863,6 +863,7 @@ set( COMMON_SRCS
     tool/action_menu.cpp
     tool/action_toolbar.cpp
     tool/actions.cpp
+    tool/align_geom.cpp
     tool/alignment_guide_engine.cpp
     tool/common_control.cpp
     tool/construction_manager.cpp

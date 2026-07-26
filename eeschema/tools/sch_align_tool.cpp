@@ -81,33 +81,6 @@ bool SCH_ALIGN_TOOL::Init()
 
 
 template< typename T >
-int SCH_ALIGN_TOOL::selectTarget( const std::vector<ITEM_BOX>& aItems,
-                                  const std::vector<ITEM_BOX>& aLocked, T aGetValue )
-{
-    VECTOR2I cursorPos = getViewControls()->GetCursorPosition();
-
-    if( !aLocked.empty() )
-    {
-        for( const ITEM_BOX& item : aLocked )
-        {
-            if( item.second.Contains( cursorPos ) )
-                return aGetValue( item );
-        }
-
-        return aGetValue( aLocked.front() );
-    }
-
-    for( const ITEM_BOX& item : aItems )
-    {
-        if( item.second.Contains( cursorPos ) )
-            return aGetValue( item );
-    }
-
-    return aGetValue( aItems.front() );
-}
-
-
-template< typename T >
 size_t SCH_ALIGN_TOOL::GetSelections( std::vector<ITEM_BOX>& aItemsToAlign,
                                       std::vector<ITEM_BOX>& aLockedItems, T aCompare )
 {
@@ -173,6 +146,40 @@ VECTOR2I SCH_ALIGN_TOOL::adjustDeltaForGrid( SCH_ITEM* aItem, const VECTOR2I& aD
 }
 
 
+void SCH_ALIGN_TOOL::applyAlign( std::vector<ITEM_BOX>& aItems,
+                                 const std::vector<ITEM_BOX>& aLocked, ALIGN_GEOM::MODE aMode,
+                                 SCH_COMMIT& aCommit )
+{
+    // Locked items are never moved, but they are the *preferred* target: aligning to something
+    // that cannot move is the whole reason a user locks it first.  So the target is picked from
+    // the locked set when there is one, and only the unlocked items receive a delta.
+    const std::vector<ITEM_BOX>& targetPool = aLocked.empty() ? aItems : aLocked;
+
+    std::vector<BOX2I> targetBoxes;
+
+    for( const ITEM_BOX& item : targetPool )
+        targetBoxes.push_back( item.second );
+
+    std::optional<size_t> target =
+            ALIGN_GEOM::SelectTargetIndex( targetBoxes, getViewControls()->GetCursorPosition() );
+
+    if( !target )
+        return;
+
+    std::vector<BOX2I> boxes;
+
+    for( const ITEM_BOX& item : aItems )
+        boxes.push_back( item.second );
+
+    const std::vector<VECTOR2I> deltas = ALIGN_GEOM::Deltas( boxes, aMode, targetBoxes[*target] );
+
+    // Through moveItem(), which applies adjustDeltaForGrid() -- connectable items must land back
+    // on the grid after an align, and that rule is not this task's to change.
+    for( size_t i = 0; i < aItems.size(); ++i )
+        moveItem( aItems[i].first, deltas[i], aCommit );
+}
+
+
 void SCH_ALIGN_TOOL::setTransitions()
 {
     Go( &SCH_ALIGN_TOOL::AlignTop,      SCH_ACTIONS::alignTop.MakeEvent() );
@@ -200,18 +207,7 @@ int SCH_ALIGN_TOOL::AlignTop( const TOOL_EVENT& aEvent )
 
     SCH_COMMIT commit( m_toolMgr );
 
-    int targetTop = selectTarget( itemsToAlign, lockedItems,
-            []( const ITEM_BOX& item )
-            {
-                return item.second.GetTop();
-            } );
-
-    for( const ITEM_BOX& item : itemsToAlign )
-    {
-        int difference = targetTop - item.second.GetTop();
-        moveItem( item.first, VECTOR2I( 0, difference ), commit );
-    }
-
+    applyAlign( itemsToAlign, lockedItems, ALIGN_GEOM::MODE::TOP, commit );
     doAlignCleanup( commit, itemsToAlign );
 
     commit.Push( _( "Align to Top" ) );
@@ -235,18 +231,7 @@ int SCH_ALIGN_TOOL::AlignBottom( const TOOL_EVENT& aEvent )
 
     SCH_COMMIT commit( m_toolMgr );
 
-    int targetBottom = selectTarget( itemsToAlign, lockedItems,
-            []( const ITEM_BOX& item )
-            {
-                return item.second.GetBottom();
-            } );
-
-    for( const ITEM_BOX& item : itemsToAlign )
-    {
-        int difference = targetBottom - item.second.GetBottom();
-        moveItem( item.first, VECTOR2I( 0, difference ), commit );
-    }
-
+    applyAlign( itemsToAlign, lockedItems, ALIGN_GEOM::MODE::BOTTOM, commit );
     doAlignCleanup( commit, itemsToAlign );
 
     commit.Push( _( "Align to Bottom" ) );
@@ -270,18 +255,7 @@ int SCH_ALIGN_TOOL::AlignLeft( const TOOL_EVENT& aEvent )
 
     SCH_COMMIT commit( m_toolMgr );
 
-    int targetLeft = selectTarget( itemsToAlign, lockedItems,
-            []( const ITEM_BOX& item )
-            {
-                return item.second.GetLeft();
-            } );
-
-    for( const ITEM_BOX& item : itemsToAlign )
-    {
-        int difference = targetLeft - item.second.GetLeft();
-        moveItem( item.first, VECTOR2I( difference, 0 ), commit );
-    }
-
+    applyAlign( itemsToAlign, lockedItems, ALIGN_GEOM::MODE::LEFT, commit );
     doAlignCleanup( commit, itemsToAlign );
 
     commit.Push( _( "Align to Left" ) );
@@ -305,18 +279,7 @@ int SCH_ALIGN_TOOL::AlignRight( const TOOL_EVENT& aEvent )
 
     SCH_COMMIT commit( m_toolMgr );
 
-    int targetRight = selectTarget( itemsToAlign, lockedItems,
-            []( const ITEM_BOX& item )
-            {
-                return item.second.GetRight();
-            } );
-
-    for( const ITEM_BOX& item : itemsToAlign )
-    {
-        int difference = targetRight - item.second.GetRight();
-        moveItem( item.first, VECTOR2I( difference, 0 ), commit );
-    }
-
+    applyAlign( itemsToAlign, lockedItems, ALIGN_GEOM::MODE::RIGHT, commit );
     doAlignCleanup( commit, itemsToAlign );
 
     commit.Push( _( "Align to Right" ) );
@@ -340,18 +303,7 @@ int SCH_ALIGN_TOOL::AlignCenterX( const TOOL_EVENT& aEvent )
 
     SCH_COMMIT commit( m_toolMgr );
 
-    int targetX = selectTarget( itemsToAlign, lockedItems,
-            []( const ITEM_BOX& item )
-            {
-                return item.second.Centre().x;
-            } );
-
-    for( const ITEM_BOX& item : itemsToAlign )
-    {
-        int difference = targetX - item.second.Centre().x;
-        moveItem( item.first, VECTOR2I( difference, 0 ), commit );
-    }
-
+    applyAlign( itemsToAlign, lockedItems, ALIGN_GEOM::MODE::CENTER_X, commit );
     doAlignCleanup( commit, itemsToAlign );
 
     commit.Push( _( "Align to Middle" ) );
@@ -375,18 +327,7 @@ int SCH_ALIGN_TOOL::AlignCenterY( const TOOL_EVENT& aEvent )
 
     SCH_COMMIT commit( m_toolMgr );
 
-    int targetY = selectTarget( itemsToAlign, lockedItems,
-            []( const ITEM_BOX& item )
-            {
-                return item.second.Centre().y;
-            } );
-
-    for( const ITEM_BOX& item : itemsToAlign )
-    {
-        int difference = targetY - item.second.Centre().y;
-        moveItem( item.first, VECTOR2I( 0, difference ), commit );
-    }
-
+    applyAlign( itemsToAlign, lockedItems, ALIGN_GEOM::MODE::CENTER_Y, commit );
     doAlignCleanup( commit, itemsToAlign );
 
     commit.Push( _( "Align to Center" ) );

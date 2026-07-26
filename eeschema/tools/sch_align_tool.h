@@ -22,6 +22,7 @@
 #include <vector>
 
 #include <math/box2.h>
+#include <tool/align_geom.h>
 #include <tools/sch_tool_base.h>
 
 class CONDITIONAL_MENU;
@@ -48,16 +49,14 @@ private:
     using ITEM_BOX = std::pair<SCH_ITEM*, BOX2I>;
 
     template< typename T >
-    int selectTarget( const std::vector<ITEM_BOX>& aItems, const std::vector<ITEM_BOX>& aLocked,
-                      T aGetValue );
-
-    template< typename T >
     size_t GetSelections( std::vector<ITEM_BOX>& aItemsToAlign, std::vector<ITEM_BOX>& aLockedItems,
                           T aCompare );
 
     void moveItem( SCH_ITEM* aItem, const VECTOR2I& aDelta, SCH_COMMIT& aCommit );
     VECTOR2I adjustDeltaForGrid( SCH_ITEM* aItem, const VECTOR2I& aDelta );
     void     doAlignCleanup( SCH_COMMIT& aCommit, std::vector<ITEM_BOX>& aItems );
+    void applyAlign( std::vector<ITEM_BOX>& aItems, const std::vector<ITEM_BOX>& aLocked,
+                     ALIGN_GEOM::MODE aMode, SCH_COMMIT& aCommit );
     void setTransitions() override;
 
 private:
