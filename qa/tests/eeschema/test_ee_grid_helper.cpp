@@ -270,4 +270,95 @@ BOOST_AUTO_TEST_CASE( OffGridDetection )
     BOOST_CHECK( !EE_GRID_HELPER::IsOffGrid( &offGrid, VECTOR2I( 0, 0 ) ) );
 }
 
+// The third box rule.  Separate from the other two because which one applies is decided by what
+// is being dragged -- so a symbol drag can never acquire a graphic target, and vice versa.
+BOOST_AUTO_TEST_CASE( GraphicAlignmentBoxAcceptsBitmapsAndGraphicLines )
+{
+    // A separator line is a graphic SCH_LINE.  Horizontal, so the box has zero height: kept on
+    // purpose, exactly as the symbol rule keeps flat polylines.  Dropping zero-extent shapes
+    // would drop the entire separator use case.
+    SCH_LINE separator( VECTOR2I( 1000, 5000 ), LAYER_NOTES );
+    separator.SetEndPoint( VECTOR2I( 9000, 5000 ) );
+
+    const std::optional<BOX2I> lineBox = EE_GRID_HELPER::GetGraphicAlignmentBox( &separator );
+
+    BOOST_REQUIRE( lineBox.has_value() );
+    BOOST_CHECK_EQUAL( lineBox->GetOrigin(), VECTOR2I( 1000, 5000 ) );
+    BOOST_CHECK_EQUAL( lineBox->GetEnd(), VECTOR2I( 9000, 5000 ) );
+    BOOST_CHECK_EQUAL( lineBox->GetHeight(), 0 );
+
+    // Drawn right-to-left: the box must still be normalised, or every guide against it is wrong.
+    SCH_LINE backwards( VECTOR2I( 9000, 5000 ), LAYER_NOTES );
+    backwards.SetEndPoint( VECTOR2I( 1000, 5000 ) );
+
+    const std::optional<BOX2I> backBox = EE_GRID_HELPER::GetGraphicAlignmentBox( &backwards );
+
+    BOOST_REQUIRE( backBox.has_value() );
+    BOOST_CHECK_EQUAL( backBox->GetOrigin(), VECTOR2I( 1000, 5000 ) );
+    BOOST_CHECK_EQUAL( backBox->GetEnd(), VECTOR2I( 9000, 5000 ) );
+}
+
+
+// A wire is not a graphic.  It has to keep the body rule and grid-legal snapping, or dragging one
+// would silently gain the off-grid exemption that the graphics path carries.
+BOOST_AUTO_TEST_CASE( GraphicAlignmentBoxRejectsConnectableLines )
+{
+    SCH_LINE wire( VECTOR2I( 0, 0 ), LAYER_WIRE );
+    wire.SetEndPoint( VECTOR2I( 1000, 0 ) );
+
+    BOOST_CHECK( !EE_GRID_HELPER::GetGraphicAlignmentBox( &wire ).has_value() );
+}
+
+
+// Same stroke deflation as the symbol rule: EDA_SHAPE::getBoundingBox() inflates by half the
+// stroke, and half a stroke is not a whole grid step.
+BOOST_AUTO_TEST_CASE( GraphicAlignmentBoxDeflatesShapeStroke )
+{
+    SCH_SHAPE rect( SHAPE_T::RECTANGLE );
+    rect.SetStart( VECTOR2I( 0, 0 ) );
+    rect.SetEnd( VECTOR2I( 2540, 2540 ) );
+    rect.SetWidth( 254 );
+
+    // Precondition, as the symbol-rule test does: the inflated box really is bigger, or this
+    // test would pass against an implementation that deflates nothing.
+    BOOST_REQUIRE_EQUAL( rect.GetBoundingBox().GetOrigin(), VECTOR2I( -127, -127 ) );
+
+    const std::optional<BOX2I> box = EE_GRID_HELPER::GetGraphicAlignmentBox( &rect );
+
+    BOOST_REQUIRE( box.has_value() );
+    BOOST_CHECK_EQUAL( box->GetOrigin(), VECTOR2I( 0, 0 ) );
+    BOOST_CHECK_EQUAL( box->GetEnd(), VECTOR2I( 2540, 2540 ) );
+}
+
+
+// Text is excluded by all three rules: font metrics make it a poor alignment reference.
+BOOST_AUTO_TEST_CASE( GraphicAlignmentBoxRejectsTextAndBodies )
+{
+    SCH_TEXT text;
+    BOOST_CHECK( !EE_GRID_HELPER::GetGraphicAlignmentBox( &text ).has_value() );
+
+    SCH_SHEET sheet;
+    BOOST_CHECK( !EE_GRID_HELPER::GetGraphicAlignmentBox( &sheet ).has_value() );
+
+    SCH_PIN pin( nullptr );
+    BOOST_CHECK( !EE_GRID_HELPER::GetGraphicAlignmentBox( &pin ).has_value() );
+}
+
+
+// The invariant that matters is NOT "no type is accepted by more than one rule".  SCH_SHAPE_T is
+// deliberately accepted by both the symbol rule and the graphic rule, and that is harmless --
+// they never apply in the same editor.  What must stay disjoint is the pair that competes: both
+// schematic rules, chosen per drag.  Overlap there makes a single drag ambiguous.
+BOOST_AUTO_TEST_CASE( TheTwoSchematicRulesDoNotOverlap )
+{
+    SCH_SHEET sheet;
+    BOOST_CHECK( EE_GRID_HELPER::GetAlignmentBox( &sheet ).has_value() );
+    BOOST_CHECK( !EE_GRID_HELPER::GetGraphicAlignmentBox( &sheet ).has_value() );
+
+    SCH_LINE separator( VECTOR2I( 0, 0 ), LAYER_NOTES );
+    separator.SetEndPoint( VECTOR2I( 1000, 0 ) );
+    BOOST_CHECK( !EE_GRID_HELPER::GetAlignmentBox( &separator ).has_value() );
+    BOOST_CHECK( EE_GRID_HELPER::GetGraphicAlignmentBox( &separator ).has_value() );
+}
+
 BOOST_AUTO_TEST_SUITE_END()

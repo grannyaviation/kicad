@@ -85,6 +85,18 @@ public:
     static std::optional<BOX2I> GetSymbolAlignmentBox( const EDA_ITEM* aItem );
 
     /**
+     * The box alignment guides measure a *schematic graphic* by, or nullopt if it is not
+     * something anyone aligns to.
+     *
+     * A third rule rather than an extension of the other two, for the same reason there are
+     * already two: which rule applies is decided by what is being dragged, so a symbol drag can
+     * never acquire a graphic target and a logo can never chase a pin.
+     *
+     * Text is excluded, as it is everywhere else here -- font metrics make it a poor reference.
+     */
+    static std::optional<BOX2I> GetGraphicAlignmentBox( const EDA_ITEM* aItem );
+
+    /**
      * True when a point of aItem that has to land on the grid does not.
      *
      * Reads SCH_ITEM::GetConnectionPoints() -- the same points ERC's off-grid endpoint test

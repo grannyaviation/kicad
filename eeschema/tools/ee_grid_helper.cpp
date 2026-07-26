@@ -499,6 +499,34 @@ std::optional<BOX2I> EE_GRID_HELPER::GetAlignmentBox( const EDA_ITEM* aItem )
 }
 
 
+/**
+ * The nominal outline of a shape, as authored.
+ *
+ * EDA_SHAPE::getBoundingBox() ends with Inflate( GetWidth() / 2 ), so the box is half a stroke
+ * wider than the shape on every side.  Half a stroke is not a whole grid step, so a shape
+ * measured that way can never align on grid to anything drawn with a different width.
+ *
+ * Shared by the symbol and graphic rules deliberately: two copies of this reasoning would drift.
+ */
+static std::optional<BOX2I> shapeAlignmentBox( const SCH_SHAPE* aShape )
+{
+    BOX2I box = aShape->GetBoundingBox();
+
+    // An empty POLY, or a BEZIER whose curve points have not been rebuilt, leaves
+    // getBoundingBox() with a default-constructed box.  The engine would read that as a real
+    // point box at the origin and pull the selection towards (0, 0).
+    //
+    // Deliberately not a size test: a straight polyline or segment has zero extent on one axis,
+    // and dropping those would lose every diode bar and ground symbol in the library.
+    if( !box.IsValid() )
+        return std::nullopt;
+
+    box.Inflate( -( std::max( 0, aShape->GetWidth() ) / 2 ) );
+
+    return box;
+}
+
+
 std::optional<BOX2I> EE_GRID_HELPER::GetSymbolAlignmentBox( const EDA_ITEM* aItem )
 {
     switch( aItem->Type() )
@@ -515,37 +543,54 @@ std::optional<BOX2I> EE_GRID_HELPER::GetSymbolAlignmentBox( const EDA_ITEM* aIte
     }
 
     case SCH_SHAPE_T:
-    {
-        const SCH_SHAPE* shape = static_cast<const SCH_SHAPE*>( aItem );
-
-        // EDA_SHAPE::getBoundingBox() ends with Inflate( GetWidth() / 2 ), so the box is half a
-        // stroke wider than the shape on every side.  Half a stroke is not a whole grid step, so
-        // a body outline measured that way can never align on grid to anything drawn with a
-        // different width.  Deflating by the same amount recovers the nominal outline as
-        // authored -- the drawn geometry is the inflated box itself.
-        const int deflate = std::max( 0, shape->GetWidth() ) / 2;
-
-        BOX2I box = shape->GetBoundingBox();
-
-        // An empty POLY, or a BEZIER whose curve points have not been rebuilt, leaves
-        // getBoundingBox() with a default-constructed box.  The engine would read that as a real
-        // point box at the origin and pull the selection towards (0, 0).
-        //
-        // Deliberately not a size test: a straight polyline or segment has zero extent on one
-        // axis, and dropping those would lose every diode bar and ground symbol in the library.
-        // The engine takes degenerate boxes on purpose -- the pin case above is zero-size on
-        // both axes.
-        if( !box.IsValid() )
-            return std::nullopt;
-
-        box.Inflate( -deflate );
-
-        return box;
-    }
+        return shapeAlignmentBox( static_cast<const SCH_SHAPE*>( aItem ) );
 
     default:
         // Text, text boxes and fields: extents depend on font metrics and on whether a field is
         // visible, and the width of a pin name is not something anyone aligns to.
+        return std::nullopt;
+    }
+}
+
+
+std::optional<BOX2I> EE_GRID_HELPER::GetGraphicAlignmentBox( const EDA_ITEM* aItem )
+{
+    switch( aItem->Type() )
+    {
+    case SCH_BITMAP_T:
+    {
+        const BOX2I box = aItem->GetBoundingBox();
+
+        // A bitmap with no image loaded has no extent to align to.
+        if( !box.IsValid() )
+            return std::nullopt;
+
+        return box;
+    }
+
+    case SCH_LINE_T:
+    {
+        const SCH_LINE* line = static_cast<const SCH_LINE*>( aItem );
+
+        // A wire or bus keeps the body rule and its grid-legal snapping.  Only a notes line is
+        // a separator.
+        if( line->IsConnectable() )
+            return std::nullopt;
+
+        // Merge rather than construct from the pair: a line drawn right-to-left would otherwise
+        // produce a box with negative size, and every guide against it would be wrong.  A
+        // horizontal separator is legitimately zero-height, exactly as flat polylines are in the
+        // symbol rule.
+        BOX2I box( line->GetStartPoint(), VECTOR2I( 0, 0 ) );
+        box.Merge( line->GetEndPoint() );
+
+        return box;
+    }
+
+    case SCH_SHAPE_T:
+        return shapeAlignmentBox( static_cast<const SCH_SHAPE*>( aItem ) );
+
+    default:
         return std::nullopt;
     }
 }
