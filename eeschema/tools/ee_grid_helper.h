@@ -97,6 +97,10 @@ public:
                                  const SCH_SELECTION* aCollectSkip = nullptr );
 
 private:
+    /// True when this helper belongs to the symbol editor rather than the schematic.  The two
+    /// have entirely different ideas of what an alignment target is, and one sweep serves both.
+    bool inSymbolEditor() const;
+
     std::set<SCH_ITEM*> queryVisible( const BOX2I& aArea, const SCH_SELECTION& aSkipList ) const;
 
     ANCHOR* nearestAnchor( const VECTOR2I& aPos, int aFlags, GRID_HELPER_GRIDS aGrid );

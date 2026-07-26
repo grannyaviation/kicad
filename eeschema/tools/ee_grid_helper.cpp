@@ -508,14 +508,25 @@ void EE_GRID_HELPER::CollectAlignmentNeighbors( const SCH_SELECTION& aSkip )
 }
 
 
+bool EE_GRID_HELPER::inSymbolEditor() const
+{
+    if( !m_toolMgr )
+        return false;
+
+    EDA_DRAW_FRAME* frame = dynamic_cast<EDA_DRAW_FRAME*>( m_toolMgr->GetToolHolder() );
+
+    return frame && frame->IsType( FRAME_SCH_SYMBOL_EDITOR );
+}
+
+
 std::set<SCH_ITEM*> EE_GRID_HELPER::queryVisible( const BOX2I& aArea,
                                                   const SCH_SELECTION& aSkipList ) const
 {
     std::set<SCH_ITEM*>                       items;
     std::vector<KIGFX::VIEW::LAYER_ITEM_PAIR> selectedItems;
 
-    EDA_DRAW_FRAME* frame = dynamic_cast<EDA_DRAW_FRAME*>( m_toolMgr->GetToolHolder() );
-    KIGFX::VIEW*    view = m_toolMgr->GetView();
+    const bool   symbolEditor = inSymbolEditor();
+    KIGFX::VIEW* view = m_toolMgr->GetView();
 
     view->Query( aArea, selectedItems );
 
@@ -533,7 +544,7 @@ std::set<SCH_ITEM*> EE_GRID_HELPER::queryVisible( const BOX2I& aArea,
         if( item->HasSelectedAncestorGroup() )
             continue;
 
-        if( frame && frame->IsType( FRAME_SCH_SYMBOL_EDITOR ) )
+        if( symbolEditor )
         {
             // If we are in the symbol editor, don't use the symbol itself
             if( item->Type() == LIB_SYMBOL_T )
