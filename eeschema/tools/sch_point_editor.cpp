@@ -1224,10 +1224,14 @@ int SCH_POINT_EDITOR::Main( const TOOL_EVENT& aEvent )
             cursorPos = grid->Align( controls->GetMousePosition(),
                                      GRID_HELPER_GRIDS::GRID_GRAPHICS );
 
-            // Smart alignment guides while resizing a sheet: line the dragged corner up with
-            // the sheets and symbols around it.  Sheets only for now -- a shape's handle has
-            // no relationship to anything else on the sheet worth guiding to.
-            if( item->Type() == SCH_SHEET_T )
+            // Smart alignment guides while resizing.  A sheet lines its corner up with the
+            // sheets and symbols around it.  In the symbol editor a body outline lines up with
+            // the pins, which is the whole reason for drawing one.  A shape on a schematic sheet
+            // is excluded: there it has no relationship to anything worth guiding to.
+            const bool guideResize = item->Type() == SCH_SHEET_T
+                                     || ( item->Type() == SCH_SHAPE_T && m_isSymbolEditor );
+
+            if( guideResize )
             {
                 cursorPos = grid->AlignPointToGuides(
                         cursorPos, collectGuideNeighbors ? &selection : nullptr );
