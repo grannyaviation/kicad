@@ -218,11 +218,9 @@ GRID_HELPER::computeAlignmentGuideSnap( const VECTOR2I& aPos, int aSnapRange,
     // Reading only the misses makes every drag look broken.  Counts included: an offset with no
     // lines and no badges paints nothing, which looks the same on screen as no snap at all.
     wxLogTrace( traceSnap,
-                "  alignment guides: snap available (%d, %d) offset (%d, %d) lines %zu badges %zu "
-                "marks %zu",
+                "  alignment guides: snap available (%d, %d) offset (%d, %d) lines %zu badges %zu",
                 aPos.x + guide->Offset.x, aPos.y + guide->Offset.y, guide->Offset.x,
-                guide->Offset.y, guide->Lines.size(), guide->Badges.size(),
-                guide->CenterMarks.size() );
+                guide->Offset.y, guide->Lines.size(), guide->Badges.size() );
 
     return GUIDE_SNAP{ aPos + guide->Offset, std::move( *guide ) };
 }

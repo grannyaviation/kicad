@@ -53,7 +53,6 @@ public:
         VECTOR2I               Offset;      ///< Add to the moving box position to snap
         std::vector<SEG>       Lines;       ///< Guide lines, already at snapped position
         std::vector<GAP_BADGE> Badges;      ///< Equal-spacing distance badges
-        std::vector<VECTOR2I>  CenterMarks; ///< Crosshair marks for center snaps
     };
 
     void SetNeighbors( std::vector<BOX2I> aBoxes ) { m_neighbors = std::move( aBoxes ); }

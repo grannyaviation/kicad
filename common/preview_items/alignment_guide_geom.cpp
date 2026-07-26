@@ -116,13 +116,6 @@ void ALIGNMENT_GUIDE_GEOM::ViewDraw( int aLayer, VIEW* aView ) const
         DrawDashedLine( gal, clipped, dashSize );
     }
 
-    for( const VECTOR2I& mark : m_guides.CenterMarks )
-    {
-        // Limitation: CenterMarks carries no axis, so a single-axis center snap still draws a
-        // full crosshair.  Needs an engine change to distinguish; see task notes.
-        DrawCross( gal, mark, aView->ToWorld( 16 ) );
-    }
-
     if( m_guides.Badges.empty() )
         return;
 

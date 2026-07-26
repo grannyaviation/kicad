@@ -285,9 +285,21 @@ BOOST_AUTO_TEST_CASE( CenterInContainer )
     BOOST_REQUIRE( result.has_value() );
     BOOST_CHECK_EQUAL( result->Offset.x, -4 );
     BOOST_CHECK_EQUAL( result->Offset.y, -2 );
-    BOOST_REQUIRE_EQUAL( result->CenterMarks.size(), 1 );
-    BOOST_CHECK_EQUAL( result->CenterMarks[0].x, 100 );
-    BOOST_CHECK_EQUAL( result->CenterMarks[0].y, 50 );
+
+    // Both axes snap to the container.  Graphics are built axis 0 (X) before axis 1 (Y), so the
+    // X line -- vertical, at the container's x-centre 100, spanning its full height y:[0,100]
+    // -- comes first; the Y line -- horizontal, at the container's y-centre 50, spanning its
+    // full width x:[0,200] -- comes second.  Two axes snapping now reads as a cross made of two
+    // real alignment lines, not a crosshair mark claiming both at once.
+    BOOST_REQUIRE_EQUAL( result->Lines.size(), 2 );
+    BOOST_CHECK_EQUAL( result->Lines[0].A.x, 100 );
+    BOOST_CHECK_EQUAL( result->Lines[0].B.x, 100 );
+    BOOST_CHECK_EQUAL( result->Lines[0].A.y, 0 );
+    BOOST_CHECK_EQUAL( result->Lines[0].B.y, 100 );
+    BOOST_CHECK_EQUAL( result->Lines[1].A.y, 50 );
+    BOOST_CHECK_EQUAL( result->Lines[1].B.y, 50 );
+    BOOST_CHECK_EQUAL( result->Lines[1].A.x, 0 );
+    BOOST_CHECK_EQUAL( result->Lines[1].B.x, 200 );
 }
 
 
@@ -307,11 +319,15 @@ BOOST_AUTO_TEST_CASE( CenterInContainerSingleAxis )
     BOOST_CHECK_EQUAL( result->Offset.x, -4 );
     BOOST_CHECK_EQUAL( result->Offset.y, 0 );
 
-    // One mark per snap, not per axis: only X won, so still exactly one.
-    BOOST_REQUIRE_EQUAL( result->CenterMarks.size(), 1 );
-    BOOST_CHECK_EQUAL( result->CenterMarks[0].x, 100 );
-    BOOST_CHECK_EQUAL( result->CenterMarks[0].y, 50 );
-    BOOST_CHECK( result->Lines.empty() );
+    // Only X won (Y is 455 out of range), so exactly one guide line: vertical, at the
+    // container's x-centre 100, spanning the container's own full height y:[0,100] -- the
+    // container's extent, not the moving box's, since the line asserts "centred in this
+    // container" and the moving box currently sits nowhere near it on Y.
+    BOOST_REQUIRE_EQUAL( result->Lines.size(), 1 );
+    BOOST_CHECK_EQUAL( result->Lines[0].A.x, 100 );
+    BOOST_CHECK_EQUAL( result->Lines[0].B.x, 100 );
+    BOOST_CHECK_EQUAL( result->Lines[0].A.y, 0 );
+    BOOST_CHECK_EQUAL( result->Lines[0].B.y, 100 );
 }
 
 
@@ -343,7 +359,12 @@ BOOST_AUTO_TEST_CASE( ContainerLosesToNearerAlignment )
     // Snapped box is x:[96,116], y:[45,55] -- the same width as the neighbor, so both its
     // edges land on a neighbor edge and both get a guide.  Each spans the cross axis merged
     // from the snapped box (y:[45,55]) and the neighbor (y:[400,440]).
-    BOOST_REQUIRE_EQUAL( result->Lines.size(), 2 );
+    //
+    // Only the Y axis snapped to the container.  FindSnap builds graphics axis 0 (X) before
+    // axis 1 (Y), so the container's line lands third, after both alignment lines -- not
+    // Lines[0].  It is horizontal, at the container's y-centre 50, spanning the container's
+    // own full width x:[0,200]: one line, since only one axis snapped there.
+    BOOST_REQUIRE_EQUAL( result->Lines.size(), 3 );
     BOOST_CHECK_EQUAL( result->Lines[0].A.x, 96 );
     BOOST_CHECK_EQUAL( result->Lines[0].A.y, 45 );
     BOOST_CHECK_EQUAL( result->Lines[0].B.x, 96 );
@@ -352,11 +373,10 @@ BOOST_AUTO_TEST_CASE( ContainerLosesToNearerAlignment )
     BOOST_CHECK_EQUAL( result->Lines[1].A.y, 45 );
     BOOST_CHECK_EQUAL( result->Lines[1].B.x, 116 );
     BOOST_CHECK_EQUAL( result->Lines[1].B.y, 440 );
-
-    // Only the Y axis snapped to the container, so exactly one centre mark.
-    BOOST_REQUIRE_EQUAL( result->CenterMarks.size(), 1 );
-    BOOST_CHECK_EQUAL( result->CenterMarks[0].x, 100 );
-    BOOST_CHECK_EQUAL( result->CenterMarks[0].y, 50 );
+    BOOST_CHECK_EQUAL( result->Lines[2].A.x, 0 );
+    BOOST_CHECK_EQUAL( result->Lines[2].A.y, 50 );
+    BOOST_CHECK_EQUAL( result->Lines[2].B.x, 200 );
+    BOOST_CHECK_EQUAL( result->Lines[2].B.y, 50 );
     BOOST_CHECK( result->Badges.empty() );
 }
 

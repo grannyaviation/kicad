@@ -352,14 +352,19 @@ void ALIGNMENT_GUIDE_ENGINE::buildGraphics( const BOX2I& aSnapped, int aAxis,
 
     case KIND_CONTAINER:
     {
-        const BOX2I&   box = m_containers[aWinner.N1];
-        const VECTOR2I center( spanOf( box, 0 ).Center(), spanOf( box, 1 ).Center() );
+        // Centring in a container is an alignment: the moving box's centre lines up with the
+        // container's.  So it draws the same kind of line, on that axis only, spanning the
+        // container -- which is also the fix for a crosshair that used to appear on both axes
+        // when only one had snapped.  Both axes snapping now yields two lines, which reads as a
+        // cross without pretending to be one.
+        const BOX2I& box = m_containers[aWinner.N1];
+        const int    ord = spanOf( box, aAxis ).Center();
+        const SPAN   cross = spanOf( box, 1 - aAxis );
 
-        // One mark per snap, even if both axes won on the same container.  At most
-        // two marks are ever pushed (one per axis), so comparing back() is a full
-        // duplicate check, not just a neighbouring-element one.
-        if( aResult.CenterMarks.empty() || aResult.CenterMarks.back() != center )
-            aResult.CenterMarks.push_back( center );
+        if( aAxis == 0 )
+            aResult.Lines.emplace_back( VECTOR2I( ord, cross.Min ), VECTOR2I( ord, cross.Max ) );
+        else
+            aResult.Lines.emplace_back( VECTOR2I( cross.Min, ord ), VECTOR2I( cross.Max, ord ) );
 
         break;
     }
