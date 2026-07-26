@@ -1260,6 +1260,15 @@ int SCH_POINT_EDITOR::Main( const TOOL_EVENT& aEvent )
             }
 
             inDrag = false;
+
+            // Main() does not exit on mouse-up, so nothing else would drop them: unlike the move
+            // tools there is no BestSnapAnchor() on this path to clear guides on entry.  Re-arm
+            // the sweep too -- the next handle drag in this same session may be at a different
+            // zoom or pan, and the old neighbour set was swept from the old viewport.
+            if( grid )
+                grid->clearAlignmentGuides();
+
+            collectGuideNeighbors = true;
         }
         else if( evt->IsCancelInteractive() || evt->IsActivate() )
         {
