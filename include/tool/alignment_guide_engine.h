@@ -75,14 +75,14 @@ public:
      *                   step are rejected outright.  Callers whose items must stay on a
      *                   grid (schematic pins) pass it.  Three things to know:
      *
-     *                   - *alignment* offsets are rejected, never rounded: a rounded offset
-     *                     would leave the item unaligned while the guide line claimed
-     *                     otherwise.  Equal-gap, between and container offsets promise a
-     *                     position rather than that two edges are level, so those are
-     *                     quantized onto the step instead of dropped -- without which equal
-     *                     spacing is unreachable for any item whose body is a half step tall,
-     *                     which in a schematic is most of them.  The resulting gaps can then
-     *                     differ by up to a grid step, and the badges say so;
+     *                   - offsets are rejected, never rounded, for every kind of snap: a
+     *                     rounded offset would leave the item where the guide says it is not.
+     *                     Quantizing the equal-gap kinds was tried and reverted -- it made
+     *                     the snap fire on geometry where exact equality is unreachable, and
+     *                     a badge that reads 9.53 next to one reading 8.89 is worse than no
+     *                     badge.  A schematic whose bodies sit on half steps may simply have
+     *                     no legal equal-spacing position on a coarse grid; a finer grid is
+     *                     the answer, not a rounder number;
      *                   - a non-positive component rejects every candidate on that axis,
      *                     so a zero step degrades to "guides don't engage" rather than to
      *                     "every candidate is legal";
@@ -150,21 +150,18 @@ private:
     /// Neighbors that cross-overlap aMoving, merged along aAxis, ordered ascending.
     std::vector<CLUSTER> buildClusters( const BOX2I& aMoving, int aAxis ) const;
 
-    /// @param aGridStep step for this axis, or 0 for unconstrained.  Alignment candidates are
-    ///                  left exact for the caller to reject; the rest are quantized onto it.
     void collectAxisCandidates( const BOX2I& aMoving, int aAxis,
-                                const std::vector<CLUSTER>& aClusters, int aGridStep,
+                                const std::vector<CLUSTER>& aClusters,
                                 std::vector<SNAP_CANDIDATE>& aOut ) const;
 
     void buildGraphics( const BOX2I& aSnapped, int aAxis, const SNAP_CANDIDATE& aWinner,
-                        const std::vector<CLUSTER>& aClusters, int aGridStep,
-                        RESULT& aResult ) const;
+                        const std::vector<CLUSTER>& aClusters, RESULT& aResult ) const;
 
-    /// A badge on every gap in the run that matches aRefGap to within aTolerance -- with three
-    /// or more boxes in line, the equality is a property of all the gaps, not just the pair the
-    /// snap was computed from.
+    /// A badge on every gap in the run exactly equal to aRefGap -- with three or more boxes in
+    /// line, the equality is a property of all the gaps, not just the pair the snap was
+    /// computed from.
     void buildGapBadges( const BOX2I& aSnapped, int aAxis, const std::vector<CLUSTER>& aClusters,
-                         int aRefGap, int aTolerance, RESULT& aResult ) const;
+                         int aRefGap, RESULT& aResult ) const;
 
     /// Guide lines for an alignment snap: one per ordinate the snapped box shares with a
     /// neighbor, each spanning every box sitting on it.

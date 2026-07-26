@@ -623,11 +623,11 @@ BOOST_AUTO_TEST_CASE( GridLegalCandidateBeatsNearerIllegalOne )
 
 
 // Real geometry from a KiCad demo, in schematic IU on a 50 mil (12700) grid.  Three
-// hierarchical sheets in a column; the sheet edges sit on *half* steps, which is normal --
-// sheet heights come from wherever the user dragged them.  The exact equal-gap position for
-// the top sheet is half a step away, so rejecting off-grid offsets outright made equal
-// spacing unreachable for the whole schematic.
-BOOST_AUTO_TEST_CASE( EqualGapQuantizesOntoGrid )
+// hierarchical sheets in a column; the sheet edges sit on *half* steps, because sheet heights
+// are whatever the user dragged them to.  Exact equal spacing here needs a quarter-step move,
+// which no whole-step offset can reach -- so the engine must decline rather than snap to
+// something close and badge it as equal.
+BOOST_AUTO_TEST_CASE( EqualGapDeclinedWhenUnreachableOnGrid )
 {
     ALIGNMENT_GUIDE_ENGINE engine;
 
@@ -636,23 +636,17 @@ BOOST_AUTO_TEST_CASE( EqualGapQuantizesOntoGrid )
                            BOX2I( VECTOR2I( 2146300, 1289050 ), VECTOR2I( 209550, 133350 ) ) } );
 
     // IO sheet, bottom at 927100.  Equal spacing wants its bottom at 1022350 - 88900 =
-    // 933450, i.e. +6350 -- exactly half a step.
+    // 933450, i.e. +6350 -- exactly half a step, so not a legal offset.
     BOX2I moving( VECTOR2I( 2146300, 463550 ), VECTOR2I( 203200, 463550 ) );
 
     auto result = engine.FindSnap( moving, 25400, VECTOR2I( 12700, 12700 ) );
 
+    // X still aligns (left edges are already level, delta 0), but Y must not move...
     BOOST_REQUIRE( result.has_value() );
+    BOOST_CHECK_EQUAL( result->Offset.y, 0 );
 
-    // Quantized to a whole step rather than dropped, and still grid-legal.
-    BOOST_CHECK_EQUAL( result->Offset.y % 12700, 0 );
-    BOOST_CHECK_EQUAL( result->Offset.y, 12700 );
-
-    // Two badges, and they tell the truth: the gaps really do differ by the half step that
-    // could not be spent, so they must not both read 88900.
-    BOOST_REQUIRE_EQUAL( result->Badges.size(), 2 );
-    BOOST_CHECK( result->Badges[0].Vertical );
-    BOOST_CHECK_EQUAL( result->Badges[0].Gap, 82550 ); // 1022350 - (927100 + 12700)
-    BOOST_CHECK_EQUAL( result->Badges[1].Gap, 88900 );
+    // ...and nothing may claim an equal spacing that was never achieved.
+    BOOST_CHECK( result->Badges.empty() );
 }
 
 
@@ -708,29 +702,6 @@ BOOST_AUTO_TEST_CASE( EqualSpacingSkipsMismatchedGap )
     BOOST_REQUIRE_EQUAL( result->Badges.size(), 2 );
     BOOST_CHECK_EQUAL( result->Badges[0].Gap, 30 );
     BOOST_CHECK_EQUAL( result->Badges[1].Gap, 30 );
-}
-
-
-// The quantized position must stay on its own side of the gap.  A gap narrower than half a
-// step would be jumped clean over, emitting a negative badge.
-BOOST_AUTO_TEST_CASE( EqualGapSkipsPairsTooTightToQuantize )
-{
-    ALIGNMENT_GUIDE_ENGINE engine;
-
-    // Two neighbours 4 apart on a grid of 10: half a step is 5, wider than the gap.
-    engine.SetNeighbors( { BOX2I( VECTOR2I( 0, 0 ), VECTOR2I( 100, 50 ) ),
-                           BOX2I( VECTOR2I( 104, 0 ), VECTOR2I( 50, 50 ) ) } );
-
-    BOX2I moving( VECTOR2I( 160, 0 ), VECTOR2I( 40, 50 ) );
-
-    auto result = engine.FindSnap( moving, 15, VECTOR2I( 10, 10 ) );
-
-    // Whatever it does or does not snap to, no badge may report a negative distance.
-    if( result )
-    {
-        for( const ALIGNMENT_GUIDE_ENGINE::GAP_BADGE& badge : result->Badges )
-            BOOST_CHECK_GT( badge.Gap, 0 );
-    }
 }
 
 

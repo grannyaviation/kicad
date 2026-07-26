@@ -447,7 +447,16 @@ void EE_GRID_HELPER::CollectAlignmentNeighbors( const SCH_SELECTION& aSkip )
     if( !m_moveContext || !m_toolMgr )
         return;
 
-    const BOX2I viewport = BOX2ISafe( m_toolMgr->GetView()->GetViewport() );
+    // The viewport, generously inflated.  Neighbours are swept once at drag start, and limiting
+    // them to what happens to be on screen makes the whole feature zoom-dependent: a fourth
+    // sheet just past the bottom edge drops silently out of an equally-spaced run, and the user
+    // sees two badges where there should be three.  Inflated in double so a zoomed-right-out
+    // viewport cannot overflow on the way back to integers; MAX_GUIDE_NEIGHBORS still bounds
+    // the cost.
+    BOX2D viewbox = m_toolMgr->GetView()->GetViewport();
+    viewbox.Inflate( viewbox.GetWidth(), viewbox.GetHeight() );
+
+    const BOX2I viewport = BOX2ISafe( viewbox );
 
     std::vector<BOX2I> boxes;
     const VECTOR2D     ref( m_moveContext->OriginalBBox.Centre() );
