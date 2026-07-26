@@ -180,9 +180,19 @@ void ALIGNMENT_GUIDE_GEOM::ViewDraw( int aLayer, VIEW* aView ) const
         gal.DrawSegment( badge.Pos - halfLen, badge.Pos + halfLen, thickness );
 
         // Same trick RULER_ITEM uses for its drop shadows: black on light, white on dark.
-        gal.SetIsFill( false );
+        // Which is white here, KiCad red being a brightness of 0.15.
+        const COLOR4D textColor = PREVIEW::GetShadowColor( m_color );
+
+        // Stroke *and* fill, both set to it.  A stroke font paints glyphs with the stroke
+        // colour and an outline font fills them, and which one FONT::GetFont() hands back
+        // depends on the user's font preference -- so setting only the stroke leaves an
+        // outline font drawing the number in whatever the fill was last set to, which is the
+        // red the pill was just filled with.  Red on red, and the badge reads as a blank
+        // lozenge.
+        gal.SetIsFill( true );
         gal.SetIsStroke( true );
-        gal.SetStrokeColor( PREVIEW::GetShadowColor( m_color ) );
+        gal.SetFillColor( textColor );
+        gal.SetStrokeColor( textColor );
         font->Draw( &gal, text, badge.Pos, textAttrs, KIFONT::METRICS::Default() );
     }
 }
