@@ -39,6 +39,7 @@
 #include <tool/tool_manager.h>
 #include <sch_tool_base.h>
 #include <settings/app_settings.h>
+#include <symbol_editor/symbol_edit_frame.h>
 #include <trigo.h>
 #include <view/view.h>
 #include "ee_grid_helper.h"
@@ -517,7 +518,7 @@ void EE_GRID_HELPER::CollectAlignmentNeighbors( const SCH_SELECTION& aSkip )
 
     // One sweep, two rules.  A symbol is made of pins and graphics; a sheet is made of symbols
     // and subsheets.  Neither set of targets means anything in the other editor.
-    const bool symbolEditor = inSymbolEditor();
+    const bool symbolEditor = inSymbolEditor() != nullptr;
 
     for( SCH_ITEM* item : queryVisible( viewport, aSkip ) )
     {
@@ -566,14 +567,12 @@ void EE_GRID_HELPER::CollectAlignmentNeighbors( const SCH_SELECTION& aSkip )
 }
 
 
-bool EE_GRID_HELPER::inSymbolEditor() const
+SYMBOL_EDIT_FRAME* EE_GRID_HELPER::inSymbolEditor() const
 {
     if( !m_toolMgr )
-        return false;
+        return nullptr;
 
-    EDA_DRAW_FRAME* frame = dynamic_cast<EDA_DRAW_FRAME*>( m_toolMgr->GetToolHolder() );
-
-    return frame && frame->IsType( FRAME_SCH_SYMBOL_EDITOR );
+    return dynamic_cast<SYMBOL_EDIT_FRAME*>( m_toolMgr->GetToolHolder() );
 }
 
 
@@ -583,8 +582,8 @@ std::set<SCH_ITEM*> EE_GRID_HELPER::queryVisible( const BOX2I& aArea,
     std::set<SCH_ITEM*>                       items;
     std::vector<KIGFX::VIEW::LAYER_ITEM_PAIR> selectedItems;
 
-    const bool   symbolEditor = inSymbolEditor();
-    KIGFX::VIEW* view = m_toolMgr->GetView();
+    SYMBOL_EDIT_FRAME* symbolEditor = inSymbolEditor();
+    KIGFX::VIEW*       view = m_toolMgr->GetView();
 
     view->Query( aArea, selectedItems );
 
@@ -606,6 +605,17 @@ std::set<SCH_ITEM*> EE_GRID_HELPER::queryVisible( const BOX2I& aArea,
         {
             // If we are in the symbol editor, don't use the symbol itself
             if( item->Type() == LIB_SYMBOL_T )
+                continue;
+
+            // Unit and body-style filtering is the painter's job (SCH_PAINTER::
+            // isUnitAndConversionShown), and the view holds every unit and every body style at
+            // once, so an item being in the view says nothing about it being on screen.  Without
+            // this a guide can align a pin to the edge of a De Morgan body that is not drawn.
+            // A zero unit or body style means "common to all", so those always qualify.
+            if( item->GetUnit() && item->GetUnit() != symbolEditor->GetUnit() )
+                continue;
+
+            if( item->GetBodyStyle() && item->GetBodyStyle() != symbolEditor->GetBodyStyle() )
                 continue;
         }
         else

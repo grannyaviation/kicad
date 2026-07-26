@@ -30,6 +30,7 @@
 #include "sch_selection.h"
 
 class SCH_ITEM;
+class SYMBOL_EDIT_FRAME;
 
 
 class EE_GRID_HELPER : public GRID_HELPER
@@ -108,9 +109,11 @@ public:
                                  const SCH_SELECTION* aCollectSkip = nullptr );
 
 private:
-    /// True when this helper belongs to the symbol editor rather than the schematic.  The two
-    /// have entirely different ideas of what an alignment target is, and one sweep serves both.
-    bool inSymbolEditor() const;
+    /// The symbol editor frame this helper belongs to, or nullptr in the schematic.  The two
+    /// editors have entirely different ideas of what an alignment target is, and one sweep
+    /// serves both -- and the symbol editor additionally needs the frame's unit and body style,
+    /// because filtering those is the painter's job and the view holds every one of them.
+    SYMBOL_EDIT_FRAME* inSymbolEditor() const;
 
     std::set<SCH_ITEM*> queryVisible( const BOX2I& aArea, const SCH_SELECTION& aSkipList ) const;
 
