@@ -67,6 +67,7 @@
 #include <tools/sch_find_replace_tool.h>
 #include <tools/symbol_editor_control.h>
 #include <tools/symbol_editor_drawing_tools.h>
+#include <tools/symbol_editor_align_tool.h>
 #include <tools/symbol_editor_edit_tool.h>
 #include <tools/symbol_editor_move_tool.h>
 #include <tools/symbol_editor_pin_tool.h>
@@ -487,6 +488,7 @@ void SYMBOL_EDIT_FRAME::setupTools()
     m_toolManager->RegisterTool( new SCH_FIND_REPLACE_TOOL );
     m_toolManager->RegisterTool( new SYMBOL_EDITOR_MOVE_TOOL );
     m_toolManager->RegisterTool( new SYMBOL_EDITOR_EDIT_TOOL );
+    m_toolManager->RegisterTool( new SYMBOL_EDITOR_ALIGN_TOOL );
     m_toolManager->RegisterTool( new LIBRARY_EDITOR_CONTROL );
     m_toolManager->RegisterTool( new SYMBOL_EDITOR_CONTROL );
     m_toolManager->RegisterTool( new PROPERTIES_TOOL );
