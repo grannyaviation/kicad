@@ -153,6 +153,14 @@ bool SYMBOL_EDITOR_MOVE_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, SCH_COM
     AXIS_LOCK axisLock = AXIS_LOCK::NONE;
     long      lastArrowKeyAction = 0;
 
+    // The moving box is re-measured whenever an event is passed on to another tool (the
+    // catch-all at the bottom of the loop): rotate, mirror, swap and properties all reshape the
+    // selection in place and then post refreshPreview, which re-enters the follow-the-mouse
+    // branch below.  The neighbour sweep is a true one-shot -- it stores boxes by value and
+    // excludes the moving selection, so nothing reshaping that selection invalidates it.
+    bool updateBBox = true;
+    bool collectGuideNeighbors = true;
+
     aCommit->Modify( m_frame->GetCurSymbol(), m_frame->GetScreen() );
 
     m_cursor = controls->GetCursorPosition( !aEvent.DisableGridSnapping() );
@@ -271,6 +279,58 @@ bool SYMBOL_EDITOR_MOVE_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, SCH_COM
                 m_moveInProgress = true;
             }
 
+            if( updateBBox )
+            {
+                // Measured exactly as CollectAlignmentNeighbors() measures neighbours -- hence
+                // the shared GetSymbolAlignmentBox() -- or the guides align edges that are not
+                // where the user sees them.
+                BOX2I guideBBox;
+                bool  allBodies = !selection.Empty();
+
+                for( EDA_ITEM* item : selection )
+                {
+                    const std::optional<BOX2I> box = EE_GRID_HELPER::GetSymbolAlignmentBox( item );
+
+                    if( box )
+                        guideBBox.Merge( *box );
+
+                    // Guides outrank anchor snapping only for shapes.  A pin's guide box IS its
+                    // snap anchor -- both are GetPosition() -- but the guide path only accepts
+                    // whole-grid-step offsets where the anchor lands exactly, so preferring the
+                    // guide for a pin can only lose targets.  Stacking pins exactly is the reason
+                    // symbol authors drag pins at all.  Pins still contribute to the box and
+                    // still get pitch guides; they just do not win the ranking.
+                    if( !box || item->Type() == SCH_PIN_T )
+                        allBodies = false;
+                }
+
+                // prevPos, not m_cursor: the items sit where prevPos put them and this event's
+                // movement is applied further down.  The engine extrapolates the moving box from
+                // that pair, so the two must agree.
+                //
+                // An invalid box would reach the engine as a real point box at the origin and
+                // drag the selection towards it, so a selection with nothing measurable in it
+                // gets no context at all rather than an empty one.
+                if( guideBBox.IsValid() )
+                {
+                    grid.SetMoveContext( guideBBox, prevPos, allBodies );
+
+                    // Must follow SetMoveContext(): the sweep sorts neighbours by distance from
+                    // the moving box's centre.
+                    if( collectGuideNeighbors )
+                    {
+                        grid.CollectAlignmentNeighbors( selection );
+                        collectGuideNeighbors = false;
+                    }
+                }
+                else
+                {
+                    grid.ClearMoveContext();
+                }
+
+                updateBBox = false;
+            }
+
             //------------------------------------------------------------------------
             // Follow the mouse
             //
@@ -279,6 +339,12 @@ bool SYMBOL_EDITOR_MOVE_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, SCH_COM
             // pressed them in a certain order.
             if( controls->GetSettings().m_lastKeyboardCursorPositionValid && !evt->IsAction( &ACTIONS::refreshPreview ) )
             {
+                // This branch repositions without BestSnapAnchor(), which is where stale guides
+                // normally get dropped.  m_lastKeyboardCursorPositionValid stays true until the
+                // mouse really moves, so guides painted by the preceding drag would linger on
+                // screen while the selection walks off under the arrow keys.
+                grid.clearAlignmentGuides();
+
                 VECTOR2I keyboardPos( controls->GetSettings().m_lastKeyboardCursorPosition );
                 long action = controls->GetSettings().m_lastKeyboardCursorCommand;
 
@@ -329,10 +395,24 @@ bool SYMBOL_EDITOR_MOVE_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, SCH_COM
                                                 selection );
             }
 
-            if( axisLock == AXIS_LOCK::HORIZONTAL )
-                m_cursor.y = prevPos.y;
-            else if( axisLock == AXIS_LOCK::VERTICAL )
-                m_cursor.x = prevPos.x;
+            if( axisLock != AXIS_LOCK::NONE )
+            {
+                const VECTOR2I unclamped = m_cursor;
+
+                if( axisLock == AXIS_LOCK::HORIZONTAL )
+                    m_cursor.y = prevPos.y;
+                else
+                    m_cursor.x = prevPos.x;
+
+                // Only when the clamp actually overrode the snapped cursor.  axisLock is sticky
+                // and survives into ordinary mouse motion, so clearing unconditionally would
+                // suppress every guide for the rest of the drag after a single arrow-key nudge.
+                //
+                // Note this drops the guide *line*; the free-axis component of the snap has
+                // already been folded into m_cursor by BestSnapAnchor and still applies.
+                if( m_cursor != unclamped )
+                    grid.clearAlignmentGuides();
+            }
 
             VECTOR2I delta( m_cursor - prevPos );
             m_anchorPos = m_cursor;
@@ -424,6 +504,11 @@ bool SYMBOL_EDITOR_MOVE_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, SCH_COM
         }
         else
         {
+            // Everything this tool does not handle itself goes to another tool, and that is
+            // where the remaining geometry mutations live -- rotate, mirror, swap, properties --
+            // each of which posts refreshPreview, so the next motion frame re-measures before
+            // BestSnapAnchor() reads the box.
+            updateBBox = true;
             evt->SetPassEvent();
         }
 
@@ -442,6 +527,11 @@ bool SYMBOL_EDITOR_MOVE_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, SCH_COM
         m_toolMgr->RunAction( ACTIONS::selectionClear );
 
     m_moveInProgress = false;
+
+    // Not load-bearing today -- grid is function-local, so its destructor would unlink the guide
+    // overlay anyway -- but this makes teardown explicit rather than depending on that.
+    grid.ClearMoveContext();
+
     m_frame->PopTool( aEvent );
 
     return !restore_state;
