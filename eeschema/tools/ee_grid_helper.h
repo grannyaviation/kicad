@@ -79,8 +79,8 @@ public:
      *
      * Separate from GetAlignmentBox() on purpose rather than merged with it.  SCH_PIN_T and
      * SCH_SHAPE_T both occur on a schematic sheet as well, and teaching the schematic rule about
-     * them would put a guide on every pin of every symbol -- which is the behaviour that made
-     * chips snap to GND flags instead of to each other.
+     * them would put a guide on every pin of every symbol -- which would make chips snap to GND
+     * flags rather than to each other.
      */
     static std::optional<BOX2I> GetSymbolAlignmentBox( const EDA_ITEM* aItem );
 

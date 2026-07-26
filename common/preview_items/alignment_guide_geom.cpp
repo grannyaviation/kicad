@@ -118,7 +118,7 @@ void ALIGNMENT_GUIDE_GEOM::ViewDraw( int aLayer, VIEW* aView ) const
 
     for( const VECTOR2I& mark : m_guides.CenterMarks )
     {
-        // ponytail: CenterMarks carries no axis, so a single-axis center snap still draws a
+        // Limitation: CenterMarks carries no axis, so a single-axis center snap still draws a
         // full crosshair.  Needs an engine change to distinguish; see task notes.
         DrawCross( gal, mark, aView->ToWorld( 16 ) );
     }
@@ -148,7 +148,7 @@ void ALIGNMENT_GUIDE_GEOM::ViewDraw( int aLayer, VIEW* aView ) const
 
     for( const ALIGNMENT_GUIDE_ENGINE::GAP_BADGE& badge : m_guides.Badges )
     {
-        // ponytail: always mm, whatever the user's display units are; upgrade path = also
+        // Limitation: always mm, whatever the user's display units are; upgrade path = also
         // take an EDA_UNITS from the frame, as RULER_ITEM does.  The *scale* is not a
         // simplification though -- it comes from the owning editor, or a schematic badge
         // would read 100x small.

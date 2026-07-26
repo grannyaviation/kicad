@@ -297,9 +297,10 @@ bool SYMBOL_EDITOR_MOVE_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, SCH_COM
                     // Guides outrank anchor snapping only for shapes.  A pin's guide box IS its
                     // snap anchor -- both are GetPosition() -- but the guide path only accepts
                     // whole-grid-step offsets where the anchor lands exactly, so preferring the
-                    // guide for a pin can only lose targets.  Stacking pins exactly is the reason
-                    // symbol authors drag pins at all.  Pins still contribute to the box and
-                    // still get pitch guides; they just do not win the ranking.
+                    // guide for a pin trades an exact landing for an approximate one.  Stacking
+                    // pins exactly is the reason symbol authors drag pins at all.  Pins still
+                    // contribute to the box and still get pitch guides; they just do not win the
+                    // ranking.
                     if( !box || item->Type() == SCH_PIN_T )
                         allBodies = false;
                 }
