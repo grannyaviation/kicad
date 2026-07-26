@@ -24,6 +24,7 @@
 
 #include <math/box2.h>
 #include <math/vector2d.h>
+#include <geometry/seg.h>
 
 /**
  * The frame-agnostic half of align-to-edge.
@@ -71,5 +72,22 @@ std::optional<size_t> SelectTargetIndex( const std::vector<BOX2I>& aBoxes,
  * it must not move.
  */
 std::vector<VECTOR2I> Deltas( const std::vector<BOX2I>& aBoxes, MODE aMode, const BOX2I& aTarget );
+
+/**
+ * The cell of a rectilinear arrangement of segments that contains aPoint.
+ *
+ * A title block is not made of cells -- it is a rectangle plus a few dividers, and the "box in
+ * the corner" a user wants to centre a logo in is only the region those lines enclose.  Each of
+ * the four walls is the nearest segment beyond the point that actually spans it on the other
+ * axis; a short divider elsewhere in the block must not become a wall.
+ *
+ * Comparison against aPoint is strict, so a point resting exactly on a divider falls into the
+ * cell on one side of it rather than into a zero-width one.  Consequently the returned box always
+ * has positive area.
+ *
+ * @param aSegments axis-aligned segments; diagonals and degenerate points are ignored
+ * @return the enclosing cell, or nullopt if aPoint is unbounded on any side
+ */
+std::optional<BOX2I> CellAt( const std::vector<SEG>& aSegments, const VECTOR2I& aPoint );
 
 } // namespace ALIGN_GEOM

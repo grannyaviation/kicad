@@ -18,6 +18,7 @@
  */
 
 #include <tool/align_geom.h>
+#include <algorithm>
 
 namespace ALIGN_GEOM
 {
@@ -75,6 +76,51 @@ std::vector<VECTOR2I> Deltas( const std::vector<BOX2I>& aBoxes, MODE aMode, cons
     }
 
     return deltas;
+}
+
+
+std::optional<BOX2I> CellAt( const std::vector<SEG>& aSegments, const VECTOR2I& aPoint )
+{
+    std::optional<int> left, right, top, bottom;
+
+    for( const SEG& seg : aSegments )
+    {
+        const bool vertical = seg.A.x == seg.B.x;
+        const bool horizontal = seg.A.y == seg.B.y;
+
+        // Equal means either a diagonal (neither) or a degenerate point (both).  Neither bounds
+        // anything rectilinear, and taking an endpoint as a wall would put a cell edge at an
+        // arbitrary place.
+        if( vertical == horizontal )
+            continue;
+
+        if( vertical )
+        {
+            if( aPoint.y < std::min( seg.A.y, seg.B.y ) || aPoint.y > std::max( seg.A.y, seg.B.y ) )
+                continue;
+
+            // Strict: a segment through aPoint belongs to neither side.
+            if( seg.A.x > aPoint.x && ( !right || seg.A.x < *right ) )
+                right = seg.A.x;
+            else if( seg.A.x < aPoint.x && ( !left || seg.A.x > *left ) )
+                left = seg.A.x;
+        }
+        else
+        {
+            if( aPoint.x < std::min( seg.A.x, seg.B.x ) || aPoint.x > std::max( seg.A.x, seg.B.x ) )
+                continue;
+
+            if( seg.A.y > aPoint.y && ( !bottom || seg.A.y < *bottom ) )
+                bottom = seg.A.y;
+            else if( seg.A.y < aPoint.y && ( !top || seg.A.y > *top ) )
+                top = seg.A.y;
+        }
+    }
+
+    if( !left || !right || !top || !bottom )
+        return std::nullopt;
+
+    return BOX2I( VECTOR2I( *left, *top ), VECTOR2I( *right - *left, *bottom - *top ) );
 }
 
 } // namespace ALIGN_GEOM

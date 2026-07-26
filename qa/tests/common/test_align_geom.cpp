@@ -21,6 +21,7 @@
 #include <boost/test/unit_test.hpp>
 
 #include <tool/align_geom.h>
+#include <geometry/seg.h>
 
 BOOST_AUTO_TEST_SUITE( AlignGeom )
 
@@ -121,6 +122,112 @@ BOOST_AUTO_TEST_CASE( EveryModeMovesOneAxisOnly )
         for( const VECTOR2I& d : ALIGN_GEOM::Deltas( boxes, mode, boxes.front() ) )
             BOOST_CHECK( d.x == 0 || d.y == 0 );
     }
+}
+
+// A title block is a rectangle plus a handful of dividers; the "box in the corner" a user wants
+// to centre a logo in is never an object, only the region those lines happen to enclose.
+BOOST_AUTO_TEST_CASE( CellAtFindsTheEnclosingRegion )
+{
+    // Verticals at x = 0, 10, 20, 30; horizontals at y = 0, 10, 20.  Six cells.
+    std::vector<SEG> segs;
+
+    for( int x : { 0, 10, 20, 30 } )
+        segs.emplace_back( VECTOR2I( x, 0 ), VECTOR2I( x, 20 ) );
+
+    for( int y : { 0, 10, 20 } )
+        segs.emplace_back( VECTOR2I( 0, y ), VECTOR2I( 30, y ) );
+
+    const std::optional<BOX2I> cell = ALIGN_GEOM::CellAt( segs, VECTOR2I( 15, 5 ) );
+
+    BOOST_REQUIRE( cell.has_value() );
+    BOOST_CHECK_EQUAL( cell->GetOrigin(), VECTOR2I( 10, 0 ) );
+    BOOST_CHECK_EQUAL( cell->GetEnd(), VECTOR2I( 20, 10 ) );
+}
+
+
+// Unbounded on any side means the point is not inside a closed cell.  Returning a box built from
+// three sides would invent a fourth edge and drag the item towards a boundary that is not there.
+BOOST_AUTO_TEST_CASE( CellAtRejectsUnboundedPoints )
+{
+    const std::vector<SEG> box = { SEG( VECTOR2I( 0, 0 ), VECTOR2I( 10, 0 ) ),
+                                   SEG( VECTOR2I( 10, 0 ), VECTOR2I( 10, 10 ) ),
+                                   SEG( VECTOR2I( 10, 10 ), VECTOR2I( 0, 10 ) ),
+                                   SEG( VECTOR2I( 0, 10 ), VECTOR2I( 0, 0 ) ) };
+
+    // Inside: fine.
+    BOOST_CHECK( ALIGN_GEOM::CellAt( box, VECTOR2I( 5, 5 ) ).has_value() );
+
+    // Outside on the right: nothing bounds it to the right.
+    BOOST_CHECK( !ALIGN_GEOM::CellAt( box, VECTOR2I( 15, 5 ) ).has_value() );
+
+    // Three walls only.
+    const std::vector<SEG> open = { SEG( VECTOR2I( 0, 0 ), VECTOR2I( 10, 0 ) ),
+                                    SEG( VECTOR2I( 10, 0 ), VECTOR2I( 10, 10 ) ),
+                                    SEG( VECTOR2I( 0, 10 ), VECTOR2I( 0, 0 ) ) };
+
+    BOOST_CHECK( !ALIGN_GEOM::CellAt( open, VECTOR2I( 5, 5 ) ).has_value() );
+
+    BOOST_CHECK( !ALIGN_GEOM::CellAt( {}, VECTOR2I( 5, 5 ) ).has_value() );
+}
+
+
+// A segment only bounds a point if it actually spans it on the other axis.  Title-block dividers
+// are short -- the vertical between two fields runs a few mm, not the height of the block -- so
+// ignoring the span would report a cell whose walls are nowhere near the point.
+BOOST_AUTO_TEST_CASE( CellAtIgnoresSegmentsThatDoNotSpanThePoint )
+{
+    std::vector<SEG> segs = { SEG( VECTOR2I( 0, 0 ), VECTOR2I( 0, 100 ) ),
+                              SEG( VECTOR2I( 100, 0 ), VECTOR2I( 100, 100 ) ),
+                              SEG( VECTOR2I( 0, 0 ), VECTOR2I( 100, 0 ) ),
+                              SEG( VECTOR2I( 0, 100 ), VECTOR2I( 100, 100 ) ) };
+
+    // A stub vertical near the top must not become the right wall of a point near the bottom.
+    segs.emplace_back( VECTOR2I( 50, 0 ), VECTOR2I( 50, 10 ) );
+
+    const std::optional<BOX2I> cell = ALIGN_GEOM::CellAt( segs, VECTOR2I( 20, 90 ) );
+
+    BOOST_REQUIRE( cell.has_value() );
+    BOOST_CHECK_EQUAL( cell->GetEnd().x, 100 );
+}
+
+
+// A point resting exactly on a divider belongs to the cell on one side, not to a zero-width one.
+// The comparison is strict for this reason; a logo dragged along a rule would otherwise flicker
+// between a real cell and a degenerate one.
+BOOST_AUTO_TEST_CASE( CellAtTreatsAPointOnADividerAsOutsideIt )
+{
+    std::vector<SEG> segs;
+
+    for( int x : { 0, 10, 20 } )
+        segs.emplace_back( VECTOR2I( x, 0 ), VECTOR2I( x, 10 ) );
+
+    segs.emplace_back( VECTOR2I( 0, 0 ), VECTOR2I( 20, 0 ) );
+    segs.emplace_back( VECTOR2I( 0, 10 ), VECTOR2I( 20, 10 ) );
+
+    const std::optional<BOX2I> cell = ALIGN_GEOM::CellAt( segs, VECTOR2I( 10, 5 ) );
+
+    BOOST_REQUIRE( cell.has_value() );
+    BOOST_CHECK_EQUAL( cell->GetOrigin().x, 0 );
+    BOOST_CHECK_EQUAL( cell->GetEnd().x, 20 );
+}
+
+
+// Drawing sheets may carry diagonals and polygons.  They bound nothing rectilinear, and treating
+// an endpoint as a wall would put a cell edge at an arbitrary place.
+BOOST_AUTO_TEST_CASE( CellAtIgnoresNonAxisAlignedSegments )
+{
+    const std::vector<SEG> segs = { SEG( VECTOR2I( 0, 0 ), VECTOR2I( 0, 10 ) ),
+                                    SEG( VECTOR2I( 10, 0 ), VECTOR2I( 10, 10 ) ),
+                                    SEG( VECTOR2I( 0, 0 ), VECTOR2I( 10, 0 ) ),
+                                    SEG( VECTOR2I( 0, 10 ), VECTOR2I( 10, 10 ) ),
+                                    SEG( VECTOR2I( 2, 2 ), VECTOR2I( 8, 8 ) ),   // diagonal
+                                    SEG( VECTOR2I( 4, 4 ), VECTOR2I( 4, 4 ) ) }; // degenerate
+
+    const std::optional<BOX2I> cell = ALIGN_GEOM::CellAt( segs, VECTOR2I( 5, 5 ) );
+
+    BOOST_REQUIRE( cell.has_value() );
+    BOOST_CHECK_EQUAL( cell->GetOrigin(), VECTOR2I( 0, 0 ) );
+    BOOST_CHECK_EQUAL( cell->GetEnd(), VECTOR2I( 10, 10 ) );
 }
 
 BOOST_AUTO_TEST_SUITE_END()
