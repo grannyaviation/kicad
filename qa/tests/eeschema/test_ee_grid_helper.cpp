@@ -22,6 +22,7 @@
 #include <sch_text.h>
 #include <sch_line.h>
 #include <sch_shape.h>
+#include <sch_bitmap.h>
 #include <sch_junction.h>
 #include <sch_sheet.h>
 #include <sch_pin.h>
@@ -272,7 +273,7 @@ BOOST_AUTO_TEST_CASE( OffGridDetection )
 
 // The third box rule.  Separate from the other two because which one applies is decided by what
 // is being dragged -- so a symbol drag can never acquire a graphic target, and vice versa.
-BOOST_AUTO_TEST_CASE( GraphicAlignmentBoxAcceptsBitmapsAndGraphicLines )
+BOOST_AUTO_TEST_CASE( GraphicAlignmentBoxAcceptsGraphicLines )
 {
     // A separator line is a graphic SCH_LINE.  Horizontal, so the box has zero height: kept on
     // purpose, exactly as the symbol rule keeps flat polylines.  Dropping zero-extent shapes
@@ -359,6 +360,21 @@ BOOST_AUTO_TEST_CASE( TheTwoSchematicRulesDoNotOverlap )
     separator.SetEndPoint( VECTOR2I( 1000, 0 ) );
     BOOST_CHECK( !EE_GRID_HELPER::GetAlignmentBox( &separator ).has_value() );
     BOOST_CHECK( EE_GRID_HELPER::GetGraphicAlignmentBox( &separator ).has_value() );
+}
+
+// A bitmap with no image loaded does not produce an *invalid* box -- ByCenter() marks it
+// initialised whatever the size -- so it arrives as a valid zero-size box and IsValid() cannot
+// catch it.  An item with nothing drawn must not become an alignment target: these guides have
+// already shipped one bug where they snapped to symbol geometry that was not on screen.
+BOOST_AUTO_TEST_CASE( GraphicAlignmentBoxRejectsAnImagelessBitmap )
+{
+    SCH_BITMAP bitmap( VECTOR2I( 2540, 2540 ) );
+
+    // Precondition: the box really is valid and really is empty, or this test proves nothing.
+    BOOST_REQUIRE( bitmap.GetBoundingBox().IsValid() );
+    BOOST_REQUIRE_EQUAL( bitmap.GetBoundingBox().GetWidth(), 0 );
+
+    BOOST_CHECK( !EE_GRID_HELPER::GetGraphicAlignmentBox( &bitmap ).has_value() );
 }
 
 BOOST_AUTO_TEST_SUITE_END()

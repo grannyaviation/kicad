@@ -561,8 +561,12 @@ std::optional<BOX2I> EE_GRID_HELPER::GetGraphicAlignmentBox( const EDA_ITEM* aIt
     {
         const BOX2I box = aItem->GetBoundingBox();
 
-        // A bitmap with no image loaded has no extent to align to.
-        if( !box.IsValid() )
+        // Not IsValid(): REFERENCE_IMAGE::GetBoundingBox() builds the box with BOX2I::ByCenter(),
+        // which marks it initialised whatever the size, so a bitmap with no image loaded comes
+        // back as a *valid* zero-size box at its position rather than an invalid one.  A loaded
+        // image always has both dimensions positive, so the size is the honest test -- and an
+        // item with nothing drawn must never become an alignment target.
+        if( box.GetWidth() <= 0 || box.GetHeight() <= 0 )
             return std::nullopt;
 
         return box;
