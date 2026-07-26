@@ -73,6 +73,17 @@ public:
     static std::optional<BOX2I> GetAlignmentBox( const EDA_ITEM* aItem );
 
     /**
+     * The box alignment guides measure a *symbol editor* item by, or nullopt if it is not
+     * something anyone aligns to.
+     *
+     * Separate from GetAlignmentBox() on purpose rather than merged with it.  SCH_PIN_T and
+     * SCH_SHAPE_T both occur on a schematic sheet as well, and teaching the schematic rule about
+     * them would put a guide on every pin of every symbol -- which is the behaviour that made
+     * chips snap to GND flags instead of to each other.
+     */
+    static std::optional<BOX2I> GetSymbolAlignmentBox( const EDA_ITEM* aItem );
+
+    /**
      * Collect neighbour bounding boxes for smart alignment guides.
      * Call once at drag start, after SetMoveContext().
      *

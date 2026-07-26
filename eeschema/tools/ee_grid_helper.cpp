@@ -27,6 +27,8 @@
 #include <sch_group.h>
 #include <sch_item.h>
 #include <sch_line.h>
+#include <sch_pin.h>
+#include <sch_shape.h>
 #include <sch_sheet.h>
 #include <sch_symbol.h>
 #include <sch_table.h>
@@ -434,6 +436,58 @@ std::optional<BOX2I> EE_GRID_HELPER::GetAlignmentBox( const EDA_ITEM* aItem )
     }
 
     default:
+        return std::nullopt;
+    }
+}
+
+
+std::optional<BOX2I> EE_GRID_HELPER::GetSymbolAlignmentBox( const EDA_ITEM* aItem )
+{
+    switch( aItem->Type() )
+    {
+    case SCH_PIN_T:
+    {
+        // A point, not a rectangle.  Zero size collapses min, max and centre onto the
+        // connection point, so every alignment candidate the engine builds reduces to "line
+        // this pin up with that one" -- and a column of pins yields clusters whose gaps are the
+        // pin pitch, which is what makes equal-pitch snapping work with no extra machinery.
+        const VECTOR2I pos = static_cast<const SCH_PIN*>( aItem )->GetPosition();
+
+        return BOX2I( pos, VECTOR2I( 0, 0 ) );
+    }
+
+    case SCH_SHAPE_T:
+    {
+        const SCH_SHAPE* shape = static_cast<const SCH_SHAPE*>( aItem );
+
+        // EDA_SHAPE::getBoundingBox() ends with Inflate( GetWidth() / 2 ), so the box is half a
+        // stroke wider than the shape on every side.  Half a stroke is not a whole grid step, so
+        // a body outline measured that way can never align on grid to anything drawn with a
+        // different width.  Deflating by the same amount recovers the nominal outline as
+        // authored -- the drawn geometry is the inflated box itself.
+        const int deflate = std::max( 0, shape->GetWidth() ) / 2;
+
+        BOX2I box = shape->GetBoundingBox();
+
+        // An empty POLY, or a BEZIER whose curve points have not been rebuilt, leaves
+        // getBoundingBox() with a default-constructed box.  The engine would read that as a real
+        // point box at the origin and pull the selection towards (0, 0).
+        //
+        // Deliberately not a size test: a straight polyline or segment has zero extent on one
+        // axis, and dropping those would lose every diode bar and ground symbol in the library.
+        // The engine takes degenerate boxes on purpose -- the pin case above is zero-size on
+        // both axes.
+        if( !box.IsValid() )
+            return std::nullopt;
+
+        box.Inflate( -deflate );
+
+        return box;
+    }
+
+    default:
+        // Text, text boxes and fields: extents depend on font metrics and on whether a field is
+        // visible, and the width of a pin name is not something anyone aligns to.
         return std::nullopt;
     }
 }
