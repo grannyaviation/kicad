@@ -185,18 +185,44 @@ GRID_HELPER::computeAlignmentGuideSnap( const VECTOR2I& aPos, int aSnapRange,
         // are identical on screen -- no guide line -- and need opposite fixes.  Re-running
         // without the grid constraint is the cheapest way to tell them apart, and it only
         // costs anything when someone is actually watching the trace.
-        if( !guide && aGridStep && engine.FindSnap( movingBox, aSnapRange ) )
-            wxLogTrace( traceSnap, "  alignment guides: candidate in range, rejected off-grid" );
+        //
+        // Compared per axis, not overall: when X snaps and Y is rejected the result is
+        // non-empty, so an overall check reports success and says nothing about the axis the
+        // user was actually watching.
+        if( aGridStep )
+        {
+            const std::optional<ALIGNMENT_GUIDE_ENGINE::RESULT> unconstrained =
+                    engine.FindSnap( movingBox, aSnapRange );
+
+            const VECTOR2I got = guide ? guide->Offset : VECTOR2I( 0, 0 );
+            const VECTOR2I want = unconstrained ? unconstrained->Offset : VECTOR2I( 0, 0 );
+
+            if( want.x != got.x )
+            {
+                wxLogTrace( traceSnap, "  alignment guides: X rejected off-grid, wanted %d "
+                            "(grid %d), took %d", want.x, aGridStep->x, got.x );
+            }
+
+            if( want.y != got.y )
+            {
+                wxLogTrace( traceSnap, "  alignment guides: Y rejected off-grid, wanted %d "
+                            "(grid %d), took %d", want.y, aGridStep->y, got.y );
+            }
+        }
     }
 
     if( !guide )
         return std::nullopt;
 
     // "guides" plural, like the lines above, so one grep catches the misses and the hits.
-    // Reading only the misses makes every drag look broken.
-    wxLogTrace( traceSnap, "  alignment guides: snap available (%d, %d) offset (%d, %d)",
+    // Reading only the misses makes every drag look broken.  Counts included: an offset with no
+    // lines and no badges paints nothing, which looks the same on screen as no snap at all.
+    wxLogTrace( traceSnap,
+                "  alignment guides: snap available (%d, %d) offset (%d, %d) lines %zu badges %zu "
+                "marks %zu",
                 aPos.x + guide->Offset.x, aPos.y + guide->Offset.y, guide->Offset.x,
-                guide->Offset.y );
+                guide->Offset.y, guide->Lines.size(), guide->Badges.size(),
+                guide->CenterMarks.size() );
 
     return GUIDE_SNAP{ aPos + guide->Offset, std::move( *guide ) };
 }
