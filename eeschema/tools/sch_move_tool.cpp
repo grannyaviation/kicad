@@ -829,11 +829,28 @@ bool SCH_MOVE_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, SCH_COMMIT* aComm
                 // those are rubber bands, not geometry anyone aligns to: merging them stretches
                 // the moving box out to wherever their far ends sit, so the "top edge" the
                 // guides line up stops being the symbol's.
+                // A logo or a separator line is measured by its own rule and aligned to the
+                // drawing sheet, never to symbols.  Only when the whole selection is graphics: a
+                // mixed bag is a symbol move that happens to include a graphic, and has to keep
+                // the body rule or a symbol would inherit the graphics grid exemption.
+                const bool graphicsOnly =
+                        !selection.Empty()
+                        && std::all_of( selection.begin(), selection.end(),
+                                        []( const EDA_ITEM* aItem )
+                                        {
+                                            return EE_GRID_HELPER::GetGraphicAlignmentBox( aItem )
+                                                    .has_value();
+                                        } );
+
                 BOX2I guideBBox;
 
                 for( EDA_ITEM* item : selection )
                 {
-                    if( std::optional<BOX2I> box = EE_GRID_HELPER::GetAlignmentBox( item ) )
+                    const std::optional<BOX2I> box =
+                            graphicsOnly ? EE_GRID_HELPER::GetGraphicAlignmentBox( item )
+                                         : EE_GRID_HELPER::GetAlignmentBox( item );
+
+                    if( box )
                         guideBBox.Merge( *box );
                 }
 
@@ -867,7 +884,9 @@ bool SCH_MOVE_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, SCH_COMMIT* aComm
                 // at all rather than an empty one.
                 if( guideBBox.IsValid() )
                 {
-                    grid.SetMoveContext( guideBBox, prevPos, allBodies );
+                    // Graphics prefer guides for the same reason whole symbols do: a logo has no
+                    // business snapping to a pin.
+                    grid.SetMoveContext( guideBBox, prevPos, allBodies || graphicsOnly );
 
                     // Must follow SetMoveContext(): the sweep sorts neighbours by distance from
                     // OriginalBBox.Centre().

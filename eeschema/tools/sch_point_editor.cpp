@@ -1228,8 +1228,14 @@ int SCH_POINT_EDITOR::Main( const TOOL_EVENT& aEvent )
             // sheets and symbols around it.  In the symbol editor a body outline lines up with
             // the pins, which is the whole reason for drawing one.  A shape on a schematic sheet
             // is excluded: there it has no relationship to anything worth guiding to.
-            const bool guideResize = item->Type() == SCH_SHEET_T
-                                     || ( item->Type() == SCH_SHAPE_T && m_isSymbolEditor );
+            // Plus schematic graphics: dragging a separator line's endpoint should reach the
+            // drawing frame the same way moving the whole line does.  Still excluded in the
+            // symbol editor, where the SCH_SHAPE_T clause above already covers shapes.
+            const bool guideResize =
+                    item->Type() == SCH_SHEET_T
+                    || ( item->Type() == SCH_SHAPE_T && m_isSymbolEditor )
+                    || ( !m_isSymbolEditor
+                         && EE_GRID_HELPER::GetGraphicAlignmentBox( item ).has_value() );
 
             if( guideResize )
             {
