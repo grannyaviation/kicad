@@ -1226,8 +1226,9 @@ int SCH_POINT_EDITOR::Main( const TOOL_EVENT& aEvent )
 
             // Smart alignment guides while resizing.  A sheet lines its corner up with the
             // sheets and symbols around it.  In the symbol editor a body outline lines up with
-            // the pins, which is the whole reason for drawing one.  A shape on a schematic sheet
-            // is excluded: there it has no relationship to anything worth guiding to.
+            // the pins, which is the whole reason for drawing one.
+            // On a schematic sheet, graphics guide to the drawing sheet instead: a shape, a
+            // separator line or a logo lines its corner up with the title block and the frame.
             // Plus schematic graphics: dragging a separator line's endpoint should reach the
             // drawing frame the same way moving the whole line does.  Still excluded in the
             // symbol editor, where the SCH_SHAPE_T clause above already covers shapes.

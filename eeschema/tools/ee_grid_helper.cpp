@@ -694,6 +694,10 @@ void EE_GRID_HELPER::CollectAlignmentNeighbors( const SCH_SELECTION& aSkip )
         }
     }
 
+    // Copied before the move: updateDynamicContainers() rebuilds the list every motion.
+    if( m_graphicsMode )
+        m_graphicsNeighbors = boxes;
+
     engine.SetNeighbors( std::move( boxes ) );
 
     // Containers: the area the moving item can be centred inside.  Mirrors the board outline
@@ -755,6 +759,7 @@ SYMBOL_EDIT_FRAME* EE_GRID_HELPER::inSymbolEditor() const
 void EE_GRID_HELPER::clearMoveState()
 {
     m_sheetSegments.clear();
+    m_graphicsNeighbors.clear();
     m_graphicsMode = false;
 }
 
@@ -824,12 +829,34 @@ void EE_GRID_HELPER::updateDynamicContainers( const BOX2I& aMovingBox )
     ALIGNMENT_GUIDE_ENGINE& engine = getSnapManager().GetAlignmentEngine();
 
     // Measured from the moving box's centre, which is the point that ends up on the cell centre.
+    const std::optional<BOX2I> cell = ALIGN_GEOM::CellAt( m_sheetSegments, aMovingBox.Centre() );
+
+    // A degenerate box is a resize handle, not an item: AlignPointToGuides() collapses the move
+    // context onto the point being dragged.  Centring a line *endpoint* inside a title-block cell
+    // is meaningless -- what an endpoint drag wants is the cell's edges, which the neighbour
+    // registration below provides.
+    const bool centreable = aMovingBox.GetWidth() > 0 || aMovingBox.GetHeight() > 0;
+
     // Cleared rather than left stale when the item is over no cell at all, or a logo dragged off
     // the title block keeps being pulled back into the cell it just left.
-    if( std::optional<BOX2I> cell = ALIGN_GEOM::CellAt( m_sheetSegments, aMovingBox.Centre() ) )
+    if( cell && centreable )
         engine.SetContainers( { *cell } );
     else
         engine.SetContainers( {} );
+
+    // The cell is registered as a neighbour as well, because a container yields a centring
+    // candidate and nothing else -- so without this a separator line could centre in the drawing
+    // area but never sit flush against the frame, which is half of what was asked for.
+    //
+    // The cell only, never every drawing-sheet segment: making each title-block divider a target
+    // was considered during design and rejected, because it puts a dozen candidates within a few
+    // millimetres of each other.
+    std::vector<BOX2I> neighbors = m_graphicsNeighbors;
+
+    if( cell )
+        neighbors.push_back( *cell );
+
+    engine.SetNeighbors( std::move( neighbors ) );
 }
 
 

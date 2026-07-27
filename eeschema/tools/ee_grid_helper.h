@@ -158,6 +158,11 @@ private:
     /// graphics mode.
     std::vector<SEG> m_sheetSegments;
 
+    /// The graphics neighbours collected at drag start.  Kept because updateDynamicContainers()
+    /// re-sets the engine's neighbour list on every motion to append the cell the item is
+    /// currently over, and would otherwise drop them.
+    std::vector<BOX2I> m_graphicsNeighbors;
+
     /// This drag is moving graphics only, so the graphic box rule applies, the drawing sheet is
     /// a target, and offsets need not be whole grid steps.
     bool m_graphicsMode = false;

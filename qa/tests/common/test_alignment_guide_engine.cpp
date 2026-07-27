@@ -815,4 +815,36 @@ BOOST_AUTO_TEST_CASE( GridStepIsPerAxis )
 }
 
 
+// Why the drawing-sheet cell is handed to the engine twice -- once as a container, once as a
+// neighbour.  A container only ever produces a centring candidate, so a separator line offered
+// nothing but a container could centre in the drawing area and never sit flush against the
+// frame.  If this ever stops being true, the duplicate registration in EE_GRID_HELPER is dead
+// weight and should go.
+BOOST_AUTO_TEST_CASE( ContainerCentresButOnlyANeighbourAlignsAnEdge )
+{
+    const BOX2I frame( VECTOR2I( 0, 0 ), VECTOR2I( 1000, 1000 ) );
+
+    // Tucked into the top-left corner: 40 from each edge, but 410 from the centre on both axes.
+    const BOX2I moving( VECTOR2I( 40, 40 ), VECTOR2I( 100, 100 ) );
+
+    ALIGNMENT_GUIDE_ENGINE containerOnly;
+    containerOnly.SetContainers( { frame } );
+
+    // The container's only offer is the centre, 410 away on each axis -- out of a 100 reach.
+    BOOST_CHECK( !containerOnly.FindSnap( moving, 100 ).has_value() );
+
+    ALIGNMENT_GUIDE_ENGINE withNeighbour;
+    withNeighbour.SetContainers( { frame } );
+    withNeighbour.SetNeighbors( { frame } );
+
+    // As a neighbour the same box offers its top and left edges, 40 away on each axis.
+    const std::optional<ALIGNMENT_GUIDE_ENGINE::RESULT> snap =
+            withNeighbour.FindSnap( moving, 100 );
+
+    BOOST_REQUIRE( snap.has_value() );
+    BOOST_CHECK_EQUAL( snap->Offset.x, -40 );
+    BOOST_CHECK_EQUAL( snap->Offset.y, -40 );
+}
+
+
 BOOST_AUTO_TEST_SUITE_END()
