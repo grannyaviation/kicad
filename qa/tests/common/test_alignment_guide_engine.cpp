@@ -815,11 +815,11 @@ BOOST_AUTO_TEST_CASE( GridStepIsPerAxis )
 }
 
 
-// Why the drawing-sheet cell is handed to the engine twice -- once as a container, once as a
-// neighbour.  A container only ever produces a centring candidate, so a separator line offered
-// nothing but a container could centre in the drawing area and never sit flush against the
-// frame.  If this ever stops being true, the duplicate registration in EE_GRID_HELPER is dead
-// weight and should go.
+// Why the drawing-sheet cell is handed to the engine as a neighbour rather than a container.
+// A container only ever produces a centring candidate, so a separator line offered nothing but
+// a container could centre in the drawing area and never sit flush against the frame.  A
+// neighbour offers both, which is why EE_GRID_HELPER registers it that way and not as a
+// container.
 BOOST_AUTO_TEST_CASE( ContainerCentresButOnlyANeighbourAlignsAnEdge )
 {
     const BOX2I frame( VECTOR2I( 0, 0 ), VECTOR2I( 1000, 1000 ) );

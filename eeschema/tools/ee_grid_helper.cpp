@@ -831,26 +831,16 @@ void EE_GRID_HELPER::updateDynamicContainers( const BOX2I& aMovingBox )
     // Measured from the moving box's centre, which is the point that ends up on the cell centre.
     const std::optional<BOX2I> cell = ALIGN_GEOM::CellAt( m_sheetSegments, aMovingBox.Centre() );
 
-    // A degenerate box is a resize handle, not an item: AlignPointToGuides() collapses the move
-    // context onto the point being dragged.  Centring a line *endpoint* inside a title-block cell
-    // is meaningless -- what an endpoint drag wants is the cell's edges, which the neighbour
-    // registration below provides.
-    const bool centreable = aMovingBox.GetWidth() > 0 || aMovingBox.GetHeight() > 0;
-
-    // Cleared rather than left stale when the item is over no cell at all, or a logo dragged off
-    // the title block keeps being pulled back into the cell it just left.
-    if( cell && centreable )
-        engine.SetContainers( { *cell } );
-    else
-        engine.SetContainers( {} );
-
-    // The cell is registered as a neighbour as well, because a container yields a centring
-    // candidate and nothing else -- so without this a separator line could centre in the drawing
-    // area but never sit flush against the frame, which is half of what was asked for.
+    // The cell goes in as a *neighbour*, not a container.  A neighbour already offers
+    // centre-to-centre alongside its four edges, and collectAxisCandidates() pushes that before
+    // any container candidate -- which FindSnap's keep-the-first-on-a-tie rule then makes
+    // unreachable.  Registering the cell both ways is dead weight plus a second path that can
+    // never run.
     //
-    // The cell only, never every drawing-sheet segment: making each title-block divider a target
-    // was considered during design and rejected, because it puts a dozen candidates within a few
-    // millimetres of each other.
+    // Rebuilt every motion rather than once, because the user picks a logo up elsewhere on the
+    // page and carries it to the corner box, so the cell changes mid-drag.  Dropped entirely when
+    // the item is over no cell, or a logo dragged off the title block keeps being pulled back
+    // into the cell it just left.
     std::vector<BOX2I> neighbors = m_graphicsNeighbors;
 
     if( cell )
