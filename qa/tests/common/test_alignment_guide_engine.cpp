@@ -847,4 +847,40 @@ BOOST_AUTO_TEST_CASE( ContainerCentresButOnlyANeighbourAlignsAnEdge )
 }
 
 
+// Reported from a real schematic: badges appearing between two items the user never touched.
+//
+// When the grid forces a rounded spacing snap, the run is walked with a tolerance so the rounded
+// gap still earns its badge.  But that tolerance was applied to *every* pair in the run, including
+// pairs of static neighbours far from the moving box, whose gap no rounding could have changed.
+// Any two items that happened to sit within one grid step of the reference spacing were badged as
+// though the user had just made them equal.
+//
+// Only a gap the moving box is an end of can have been rounded, so only those may be forgiven.
+BOOST_AUTO_TEST_CASE( RoundingToleranceDoesNotBadgeUntouchedPairs )
+{
+    ALIGNMENT_GUIDE_ENGINE engine;
+
+    engine.SetNeighbors( { BOX2I( VECTOR2I( 0, 0 ), VECTOR2I( 20, 20 ) ),      // A x:[0,20]
+                           BOX2I( VECTOR2I( 50, 0 ), VECTOR2I( 20, 20 ) ),     // B x:[50,70]
+                           BOX2I( VECTOR2I( 200, 0 ), VECTOR2I( 20, 20 ) ),    // C x:[200,220]
+                           BOX2I( VECTOR2I( 253, 0 ), VECTOR2I( 20, 20 ) ) } );// D x:[253,273]
+
+    // A->B is the reference gap, 30.  C->D is 33: a pair the user never touched, three units off.
+    // The moving box wants x:[100,120] to continue the run, but a grid of 4 cannot reach it, so
+    // the snap rounds and is flagged approximate -- which is what opens the tolerance.
+    BOX2I moving( VECTOR2I( 102, 0 ), VECTOR2I( 20, 20 ) );
+
+    auto result = engine.FindSnap( moving, 10, VECTOR2I( 4, 4 ) );
+
+    BOOST_REQUIRE( result.has_value() );
+
+    // Two badges: A->B, and B->moving.  C->D must not appear -- nothing the snap did could have
+    // changed it, so calling it equal is a claim about the user's layout that they did not make.
+    BOOST_REQUIRE_EQUAL( result->Badges.size(), 2 );
+
+    for( const ALIGNMENT_GUIDE_ENGINE::GAP_BADGE& badge : result->Badges )
+        BOOST_CHECK( badge.Pos.x < 200 );
+}
+
+
 BOOST_AUTO_TEST_SUITE_END()

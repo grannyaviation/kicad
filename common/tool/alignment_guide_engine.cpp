@@ -229,12 +229,22 @@ void ALIGNMENT_GUIDE_ENGINE::buildGapBadges( const BOX2I& aSnapped, int aAxis,
     {
         const int gap = run[i + 1].Min - run[i].Max;
 
+        // The rounding tolerance applies only to a gap the moving box is an end of.  That is the
+        // only gap the snap could have changed; a pair of static neighbours has whatever gap it
+        // always had, so there is nothing to forgive and it has to match exactly.
+        //
+        // Applying the tolerance to the whole run badged items the user never touched: on a
+        // 100 mil grid any two symbols within 2.54 mm of the reference spacing acquired a badge,
+        // which is how badges came to appear in parts of a schematic unrelated to the drag.
+        const bool moved = ( run[i].Min == ms.Min && run[i].Max == ms.Max )
+                           || ( run[i + 1].Min == ms.Min && run[i + 1].Max == ms.Max );
+
         // Every gap that matches gets a badge, not only the two the snap was computed from:
         // with four boxes in a column, the equality the user asked for is a property of all
         // three gaps, and showing one of them proves nothing.
         //
         // A non-positive gap means the moving box overlaps that cluster, which is not a gap.
-        if( gap <= 0 || std::abs( gap - aRefGap ) > aTolerance )
+        if( gap <= 0 || std::abs( gap - aRefGap ) > ( moved ? aTolerance : 0 ) )
             continue;
 
         const int crossMid = ( std::max( run[i].CrossMin, run[i + 1].CrossMin )
