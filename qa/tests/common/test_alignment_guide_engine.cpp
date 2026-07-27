@@ -883,4 +883,39 @@ BOOST_AUTO_TEST_CASE( RoundingToleranceDoesNotBadgeUntouchedPairs )
 }
 
 
+// Reported from a real schematic: badges appearing and persisting while merely hovering, with no
+// guide line and the symbol never moving.
+//
+// A rounded fallback exists so a snap the grid cannot hit exactly still lands on the nearest legal
+// position.  But when the exact delta is a small fraction of a grid step it rounds to *zero*, and
+// a zero-delta candidate was pushed like any other -- ranked by its tiny pre-rounding distance, so
+// it usually won.  The item then stays exactly where it is while the engine reports a successful
+// equal-spacing snap and draws badges for it.
+//
+// A snap that moves nothing is not a snap.  Anything within half a grid step of where it already
+// sits has not been aligned; it is merely near.
+BOOST_AUTO_TEST_CASE( ARoundedCandidateThatMovesNothingIsNotASnap )
+{
+    ALIGNMENT_GUIDE_ENGINE engine;
+
+    // A x:[0,20], B x:[50,70]: reference gap 30.  Extending it to the right of B wants x:[100,120].
+    engine.SetNeighbors( { BOX2I( VECTOR2I( 0, 0 ), VECTOR2I( 20, 20 ) ),
+                           BOX2I( VECTOR2I( 50, 0 ), VECTOR2I( 20, 20 ) ) } );
+
+    // One unit short of it, on a grid of 10.  The exact delta of +1 is not grid-legal, and
+    // rounding it gives 0 -- so the only way to "reach" the equal spacing is to not move at all.
+    BOX2I moving( VECTOR2I( 99, 0 ), VECTOR2I( 20, 20 ) );
+
+    auto result = engine.FindSnap( moving, 10, VECTOR2I( 10, 10 ) );
+
+    // Y is genuinely aligned already, so a result with a line is fine.  What must not appear is a
+    // claim about horizontal spacing that the symbol never moved to satisfy.
+    if( result.has_value() )
+    {
+        BOOST_CHECK_EQUAL( result->Offset.x, 0 );
+        BOOST_CHECK_EQUAL( result->Badges.size(), 0 );
+    }
+}
+
+
 BOOST_AUTO_TEST_SUITE_END()

@@ -139,7 +139,15 @@ void ALIGNMENT_GUIDE_ENGINE::collectAxisCandidates( const BOX2I& aMoving, int aA
 
         const int rounded = KiROUND( double( aDelta ) / aGridStep ) * aGridStep;
 
-        if( rounded != aDelta )
+        // A snap that moves nothing is not a snap.  Anything less than half a grid step from
+        // where it already sits rounds to zero, and pushing that produced a candidate ranked by
+        // its tiny pre-rounding distance -- so it usually won, the item stayed exactly where it
+        // was, and the engine still reported a successful alignment and drew badges for it.
+        // Those badges then appeared and persisted under a merely hovering cursor.
+        //
+        // Rejecting it is the same call the exact path already makes when the grid refuses an
+        // offset: silence beats a guide that claims a relationship the item never moved into.
+        if( rounded != 0 && rounded != aDelta )
             aOut.push_back( { rounded, aDelta, aKind, aN1, aN2, 0, true } );
     };
 
