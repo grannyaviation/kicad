@@ -205,9 +205,15 @@ VECTOR2I EE_GRID_HELPER::BestSnapAnchor( const VECTOR2I& aOrigin, GRID_HELPER_GR
     // snapping off the base below is the raw cursor and the moving box is already off-grid, so
     // requiring grid-multiple offsets would protect nothing -- and would violate FindSnap's
     // precondition that aMoving is grid-aligned -- while simply stopping guides from ever firing.
+    //
+    // Graphics are exempt from the whole-grid-step rule.  That rule exists so pins land on the
+    // wire grid; a bitmap has no pins and a notes line connects to nothing, and at 100 mil the
+    // nearest legal position is up to 1.27 mm from a title-block cell centre -- in a 3 mm row,
+    // hard against an edge.  Keyed on the same graphics-only test that picked the box rule, so a
+    // selection containing anything connectable stays strict.
     std::optional<VECTOR2I> gridStep;
 
-    if( canUseGrid() )
+    if( canUseGrid() && !m_graphicsMode )
         gridStep = KiROUND( gridSize );
 
     // At least +/-2 grid steps, whatever the grid.  Reusing snapRange alone would make the
@@ -442,9 +448,10 @@ VECTOR2I EE_GRID_HELPER::AlignPointToGuides( const VECTOR2I&      aPoint,
     // Same rules as a symbol drag: offsets must be whole grid steps or a resized sheet drags
     // its pins off grid, and the reach has to be at least a couple of steps to be usable on a
     // 100 mil grid.  aPoint is already grid-aligned by the caller, which FindSnap requires.
+    // A graphic has no pins to drag off grid, so it is exempt; see BestSnapAnchor().
     std::optional<VECTOR2I> gridStep;
 
-    if( canUseGrid() )
+    if( canUseGrid() && !m_graphicsMode )
         gridStep = KiROUND( gridSize );
 
     const int range = 2 * KiROUND( std::max( gridSize.x, gridSize.y ) );
@@ -806,6 +813,23 @@ void EE_GRID_HELPER::collectDrawingSheetSegments()
 
     wxLogTrace( traceSnap, "  alignment guides: %zu drawing-sheet segments",
                 m_sheetSegments.size() );
+}
+
+
+void EE_GRID_HELPER::updateDynamicContainers( const BOX2I& aMovingBox )
+{
+    if( !m_graphicsMode )
+        return;
+
+    ALIGNMENT_GUIDE_ENGINE& engine = getSnapManager().GetAlignmentEngine();
+
+    // Measured from the moving box's centre, which is the point that ends up on the cell centre.
+    // Cleared rather than left stale when the item is over no cell at all, or a logo dragged off
+    // the title block keeps being pulled back into the cell it just left.
+    if( std::optional<BOX2I> cell = ALIGN_GEOM::CellAt( m_sheetSegments, aMovingBox.Centre() ) )
+        engine.SetContainers( { *cell } );
+    else
+        engine.SetContainers( {} );
 }
 
 

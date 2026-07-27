@@ -323,6 +323,15 @@ protected:
      */
     virtual void clearMoveState() {}
 
+    /**
+     * Called with the extrapolated moving box before each snap is scored, for containers that
+     * depend on where the selection currently *is* rather than where the drag started.
+     *
+     * A logo is picked up somewhere on the page and carried to the corner box, so a container
+     * computed once at drag start is the wrong one for the whole gesture.
+     */
+    virtual void updateDynamicContainers( const BOX2I& aMovingBox ) {}
+
     void showConstructionGeometry( bool aShow );
 
     SNAP_MANAGER& getSnapManager() { return m_snapManager; }

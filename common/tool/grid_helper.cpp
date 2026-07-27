@@ -176,11 +176,18 @@ GRID_HELPER::computeAlignmentGuideSnap( const VECTOR2I& aPos, int aSnapRange,
 
     ALIGNMENT_GUIDE_ENGINE& engine = m_snapManager.GetAlignmentEngine();
 
-    if( !engine.HasInputs() )
-        return std::nullopt;
-
     BOX2I movingBox = m_moveContext->OriginalBBox;
     movingBox.Move( aPos - m_moveContext->OriginalCursor );
+
+    // Before HasInputs(), not after.  A subclass may supply its containers from here, and the
+    // commonest case for that is a page whose only graphic is the logo being dragged -- zero
+    // neighbours and zero containers at this moment.  Testing HasInputs() first would return
+    // early and the container would never be computed, which is silence in exactly the case the
+    // feature exists for.
+    updateDynamicContainers( movingBox );
+
+    if( !engine.HasInputs() )
+        return std::nullopt;
 
     std::optional<ALIGNMENT_GUIDE_ENGINE::RESULT> guide =
             engine.FindSnap( movingBox, aSnapRange, aGridStep );

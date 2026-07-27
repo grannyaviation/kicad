@@ -152,6 +152,8 @@ private:
 
     void clearMoveState() override;
 
+    void updateDynamicContainers( const BOX2I& aMovingBox ) override;
+
     /// The drawing sheet's lines and rect edges, for ALIGN_GEOM::CellAt.  Only populated in
     /// graphics mode.
     std::vector<SEG> m_sheetSegments;
