@@ -241,6 +241,31 @@ GRID_HELPER::computeAlignmentGuideSnap( const VECTOR2I& aPos, int aSnapRange,
                 aPos.x + guide->Offset.x, aPos.y + guide->Offset.y, guide->Offset.x,
                 guide->Offset.y, guide->Lines.size(), guide->Badges.size() );
 
+    // Counts alone cannot answer the question a user actually asks about a badge -- "what is
+    // this measuring?"  Logging each one's span lets it be matched against the neighbour boxes
+    // dumped once at drag start, which is the only way to identify a badge whose other end is
+    // off screen or belongs to something the user did not expect to be an alignment target.
+    if( wxLog::IsAllowedTraceMask( traceSnap ) )
+    {
+        for( const ALIGNMENT_GUIDE_ENGINE::GAP_BADGE& badge : guide->Badges )
+        {
+            const int mid = badge.Vertical ? badge.Pos.y : badge.Pos.x;
+            const int half = badge.Gap / 2;
+
+            wxLogTrace( traceSnap,
+                        "  alignment guides: badge gap %d %s at (%d, %d) spanning %d..%d%s",
+                        badge.Gap, badge.Vertical ? "vertical" : "horizontal", badge.Pos.x,
+                        badge.Pos.y, mid - half, mid + half,
+                        badge.Approximate ? " approximate" : "" );
+        }
+
+        for( const SEG& line : guide->Lines )
+        {
+            wxLogTrace( traceSnap, "  alignment guides: line (%d, %d)-(%d, %d)", line.A.x,
+                        line.A.y, line.B.x, line.B.y );
+        }
+    }
+
     return GUIDE_SNAP{ aPos + guide->Offset, std::move( *guide ) };
 }
 

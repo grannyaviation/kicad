@@ -658,6 +658,16 @@ void EE_GRID_HELPER::CollectAlignmentNeighbors( const SCH_SELECTION& aSkip )
         if( !box )
             continue;
 
+        // Named, not just measured.  A badge whose other end is off screen is impossible to
+        // account for from coordinates alone, and the commonest surprise is an item nobody
+        // thought of as an alignment target being one.
+        if( wxLog::IsAllowedTraceMask( traceSnap ) )
+        {
+            wxLogTrace( traceSnap, "  alignment guides: target %s (%d, %d)-(%d, %d)",
+                        item->GetClass(), box->GetLeft(), box->GetTop(), box->GetRight(),
+                        box->GetBottom() );
+        }
+
         boxes.push_back( *box );
     }
 
