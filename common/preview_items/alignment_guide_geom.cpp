@@ -199,14 +199,33 @@ void ALIGNMENT_GUIDE_GEOM::ViewDraw( int aLayer, VIEW* aView ) const
 
         // A dimension line spanning the measured gap, capped with perpendicular end ticks.
         // Without it the number floats between two symbols with nothing saying which distance
-        // it belongs to -- and with equal gaps on screen, that is the whole point.  It stops
-        // short of the label rather than running under it, since there is no fill to mask it.
-        const VECTOR2I inner = dir * ( badge.Vertical ? halfBox.y : halfBox.x );
+        // it belongs to -- and with equal gaps on screen, that is the whole point.
+        //
+        // The label is constant on screen while the gap is not, so on a gap narrower than the
+        // label there is nowhere to put it inside.  It then moves aside, perpendicular to the
+        // measurement, and the line runs unbroken beneath it.  Suppressing the line instead --
+        // which is what used to happen -- also buried both end ticks inside the label's own
+        // outline, leaving a number attached to nothing at exactly the zoom levels where the
+        // reader most needs telling.
+        const int  alongHalfBox = badge.Vertical ? halfBox.y : halfBox.x;
+        const bool fits = ( badge.Gap / 2 ) > alongHalfBox;
 
-        if( ( badge.Gap / 2 ) > ( badge.Vertical ? halfBox.y : halfBox.x ) )
+        const VECTOR2I labelPos =
+                fits ? badge.Pos
+                     : badge.Pos + perp * ( ( badge.Vertical ? halfBox.x : halfBox.y ) + tick );
+
+        if( fits )
         {
+            // Stops short of the label rather than running under it, since there is no fill
+            // to mask it.
+            const VECTOR2I inner = dir * alongHalfBox;
+
             gal.DrawLine( badge.Pos - half, badge.Pos - inner );
             gal.DrawLine( badge.Pos + inner, badge.Pos + half );
+        }
+        else
+        {
+            gal.DrawLine( badge.Pos - half, badge.Pos + half );
         }
 
         gal.DrawLine( badge.Pos - half - perp * tick, badge.Pos - half + perp * tick );
@@ -214,10 +233,10 @@ void ALIGNMENT_GUIDE_GEOM::ViewDraw( int aLayer, VIEW* aView ) const
 
         // Dashed outline, no fill: the same visual language as the guide lines, and nothing
         // that can hide the number behind it.
-        const VECTOR2I tl( badge.Pos.x - halfBox.x, badge.Pos.y - halfBox.y );
-        const VECTOR2I tr( badge.Pos.x + halfBox.x, badge.Pos.y - halfBox.y );
-        const VECTOR2I br( badge.Pos.x + halfBox.x, badge.Pos.y + halfBox.y );
-        const VECTOR2I bl( badge.Pos.x - halfBox.x, badge.Pos.y + halfBox.y );
+        const VECTOR2I tl( labelPos.x - halfBox.x, labelPos.y - halfBox.y );
+        const VECTOR2I tr( labelPos.x + halfBox.x, labelPos.y - halfBox.y );
+        const VECTOR2I br( labelPos.x + halfBox.x, labelPos.y + halfBox.y );
+        const VECTOR2I bl( labelPos.x - halfBox.x, labelPos.y + halfBox.y );
 
         DrawDashedLine( gal, SEG( tl, tr ), dashSize );
         DrawDashedLine( gal, SEG( tr, br ), dashSize );
@@ -230,6 +249,6 @@ void ALIGNMENT_GUIDE_GEOM::ViewDraw( int aLayer, VIEW* aView ) const
         gal.SetIsFill( false );
         gal.SetIsStroke( true );
         gal.SetStrokeColor( m_color );
-        font->Draw( &gal, text, badge.Pos, glyphAttrs, KIFONT::METRICS::Default() );
+        font->Draw( &gal, text, labelPos, glyphAttrs, KIFONT::METRICS::Default() );
     }
 }
