@@ -377,4 +377,15 @@ BOOST_AUTO_TEST_CASE( GraphicAlignmentBoxRejectsAnImagelessBitmap )
     BOOST_CHECK( !EE_GRID_HELPER::GetGraphicAlignmentBox( &bitmap ).has_value() );
 }
 
+// EE_GRID_HELPER is default-constructible with no tool manager, which is how every test above
+// uses it, and how it is briefly constructed in some tool paths.  The drawing-sheet sweep must
+// be a safe no-op there rather than dereferencing its way to a frame that does not exist.
+BOOST_AUTO_TEST_CASE( CollectAlignmentNeighborsWithoutAFrameIsSafe )
+{
+    EE_GRID_HELPER helper;
+    SCH_SELECTION  empty;
+
+    BOOST_CHECK_NO_THROW( helper.CollectAlignmentNeighbors( empty ) );
+}
+
 BOOST_AUTO_TEST_SUITE_END()

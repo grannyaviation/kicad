@@ -79,6 +79,7 @@ public:
         m_moveContext = std::nullopt;
         m_alignGuidePreview.ClearGuides();
         SetOffGridWarnings( {} );
+        clearMoveState();
     }
 
     /**
@@ -102,6 +103,7 @@ public:
         m_snapManager.GetAlignmentEngine().Clear();
         m_alignGuidePreview.ClearGuides();
         SetOffGridWarnings( {} );
+        clearMoveState();
     }
 
     /**
@@ -313,6 +315,14 @@ protected:
     void showAlignmentGuides( const GUIDE_SNAP& aSnap );
 
 protected:
+    /**
+     * Per-drag state owned by a subclass, dropped whenever the move context is.
+     *
+     * A stale flag here exempts the *next* drag from whatever the last one was allowed, and the
+     * next drag is usually a symbol.
+     */
+    virtual void clearMoveState() {}
+
     void showConstructionGeometry( bool aShow );
 
     SNAP_MANAGER& getSnapManager() { return m_snapManager; }

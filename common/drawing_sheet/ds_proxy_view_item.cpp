@@ -101,6 +101,12 @@ void DS_PROXY_VIEW_ITEM::buildDrawList( VIEW* aView,
 }
 
 
+void DS_PROXY_VIEW_ITEM::BuildDrawList( VIEW* aView, DS_DRAW_ITEM_LIST* aDrawList ) const
+{
+    buildDrawList( aView, m_properties, aDrawList );
+}
+
+
 void DS_PROXY_VIEW_ITEM::ViewDraw( int aLayer, VIEW* aView ) const
 {
     GAL*              gal = aView->GetGAL();

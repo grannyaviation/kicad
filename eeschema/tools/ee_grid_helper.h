@@ -23,7 +23,9 @@
 #define EE_GRID_HELPER_H
 
 #include <optional>
+#include <vector>
 
+#include <geometry/seg.h>
 #include <math/vector2d.h>
 #include <origin_viewitem.h>
 #include <tool/grid_helper.h>
@@ -143,6 +145,21 @@ public:
                                  const SCH_SELECTION* aCollectSkip = nullptr );
 
 private:
+    /// Reduce the drawing sheet to axis-aligned segments.  Once per drag: BuildDrawItemsList()
+    /// re-instantiates the whole sheet, which ViewDraw() already does every frame, so this is
+    /// affordable there but not per motion.
+    void collectDrawingSheetSegments();
+
+    void clearMoveState() override;
+
+    /// The drawing sheet's lines and rect edges, for ALIGN_GEOM::CellAt.  Only populated in
+    /// graphics mode.
+    std::vector<SEG> m_sheetSegments;
+
+    /// This drag is moving graphics only, so the graphic box rule applies, the drawing sheet is
+    /// a target, and offsets need not be whole grid steps.
+    bool m_graphicsMode = false;
+
     /// The symbol editor frame this helper belongs to, or nullptr in the schematic.  The two
     /// editors have entirely different ideas of what an alignment target is, and one sweep
     /// serves both -- and the symbol editor additionally needs the frame's unit and body style,

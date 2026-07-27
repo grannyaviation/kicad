@@ -23,7 +23,10 @@
 #include <functional>
 #include <tuple>
 #include <macros.h>
+#include <drawing_sheet/ds_draw_item.h>
+#include <drawing_sheet/ds_proxy_view_item.h>
 #include <gal/graphics_abstraction_layer.h>
+#include <sch_draw_panel.h>
 #include <sch_group.h>
 #include <sch_item.h>
 #include <sch_line.h>
@@ -34,8 +37,10 @@
 #include <sch_table.h>
 #include <sch_tablecell.h>
 #include <sch_painter.h>
+#include <sch_view.h>
 #include <trace_helpers.h>
 #include <wx/log.h>
+#include <tool/align_geom.h>
 #include <tool/tool_manager.h>
 #include <sch_tool_base.h>
 #include <settings/app_settings.h>
@@ -627,9 +632,21 @@ void EE_GRID_HELPER::CollectAlignmentNeighbors( const SCH_SELECTION& aSkip )
     // itself, not a bool: the container below needs its unit and body style.
     SYMBOL_EDIT_FRAME* symbolEditor = inSymbolEditor();
 
+    // Which of the three box rules applies is decided once, here, by what is being dragged --
+    // not by filtering targets later.  A mixed selection is a symbol move that happens to
+    // include a graphic, and must keep the body rule; an empty one keeps it too.
+    m_graphicsMode = !symbolEditor && !aSkip.Empty()
+                     && std::all_of( aSkip.begin(), aSkip.end(),
+                                     []( const EDA_ITEM* aItem )
+                                     {
+                                         return GetGraphicAlignmentBox( aItem ).has_value();
+                                     } );
+
     for( SCH_ITEM* item : queryVisible( viewport, aSkip ) )
     {
-        const std::optional<BOX2I> box = symbolEditor ? GetSymbolAlignmentBox( item ) : GetAlignmentBox( item );
+        const std::optional<BOX2I> box = symbolEditor  ? GetSymbolAlignmentBox( item )
+                                         : m_graphicsMode ? GetGraphicAlignmentBox( item )
+                                                          : GetAlignmentBox( item );
 
         if( !box )
             continue;
@@ -691,6 +708,18 @@ void EE_GRID_HELPER::CollectAlignmentNeighbors( const SCH_SELECTION& aSkip )
                 engine.SetContainers( { body } );
         }
     }
+    else if( m_graphicsMode )
+    {
+        // No static container in graphics mode.  The container is the drawing-sheet cell the
+        // item is currently over, which changes as the user carries it across the page, so it is
+        // set per motion by updateDynamicContainers().
+        //
+        // The page container the branch below sets is deliberately not used here: it is the
+        // *paper* rectangle, while the drawing frame is inset from it by the sheet margins.
+        // Offering both would put two centring candidates millimetres apart, one of them on an
+        // edge that is never drawn.
+        collectDrawingSheetSegments();
+    }
     else if( SCH_BASE_FRAME* frame = dynamic_cast<SCH_BASE_FRAME*>( m_toolMgr->GetToolHolder() ) )
     {
         // The drawing sheet page.  Reached through the frame rather than GetModel(): no eeschema
@@ -713,6 +742,70 @@ SYMBOL_EDIT_FRAME* EE_GRID_HELPER::inSymbolEditor() const
         return nullptr;
 
     return dynamic_cast<SYMBOL_EDIT_FRAME*>( m_toolMgr->GetToolHolder() );
+}
+
+
+void EE_GRID_HELPER::clearMoveState()
+{
+    m_sheetSegments.clear();
+    m_graphicsMode = false;
+}
+
+
+void EE_GRID_HELPER::collectDrawingSheetSegments()
+{
+    m_sheetSegments.clear();
+
+    if( !m_toolMgr )
+        return;
+
+    SCH_BASE_FRAME* frame = dynamic_cast<SCH_BASE_FRAME*>( m_toolMgr->GetToolHolder() );
+
+    if( !frame || !frame->GetCanvas() )
+        return;
+
+    KIGFX::SCH_VIEW* view = frame->GetCanvas()->GetView();
+
+    if( !view || !view->GetDrawingSheet() )
+        return;
+
+    DS_DRAW_ITEM_LIST drawList( schIUScale );
+    view->GetDrawingSheet()->BuildDrawList( view, &drawList );
+
+    for( DS_DRAW_ITEM_BASE* item = drawList.GetFirst(); item; item = drawList.GetNext() )
+    {
+        switch( item->Type() )
+        {
+        case WSG_LINE_T:
+        {
+            const DS_DRAW_ITEM_LINE* line = static_cast<const DS_DRAW_ITEM_LINE*>( item );
+            m_sheetSegments.emplace_back( line->GetStart(), line->GetEnd() );
+            break;
+        }
+
+        case WSG_RECT_T:
+        {
+            // The page frame arrives this way: KiCad's default sheet draws the border as a rect,
+            // so the four edges below are what a separator line snaps to.
+            const DS_DRAW_ITEM_RECT* rect = static_cast<const DS_DRAW_ITEM_RECT*>( item );
+            const VECTOR2I           a = rect->GetStart();
+            const VECTOR2I           b = rect->GetEnd();
+
+            m_sheetSegments.emplace_back( VECTOR2I( a.x, a.y ), VECTOR2I( b.x, a.y ) );
+            m_sheetSegments.emplace_back( VECTOR2I( b.x, a.y ), VECTOR2I( b.x, b.y ) );
+            m_sheetSegments.emplace_back( VECTOR2I( b.x, b.y ), VECTOR2I( a.x, b.y ) );
+            m_sheetSegments.emplace_back( VECTOR2I( a.x, b.y ), VECTOR2I( a.x, a.y ) );
+            break;
+        }
+
+        // Texts, bitmaps and polygons are content, not structure: they bound no cell.
+        default:
+            break;
+        }
+    }
+
+    wxLogTrace( traceSnap, "  alignment guides: %zu drawing-sheet segments",
+                m_sheetSegments.size() );
 }
 
 

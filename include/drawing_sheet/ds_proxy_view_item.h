@@ -131,6 +131,16 @@ public:
         return wxT( "DS_PROXY_VIEW_ITEM" );
     }
 
+    /**
+     * Build the drawn geometry of the current page into aDrawList.
+     *
+     * The same list ViewDraw() renders, so a caller that snaps to sheet geometry snaps to
+     * exactly what the user sees.  Seeding the list correctly needs a dozen fields only this
+     * class holds (the project, the page info, the variant strings, the pen size from the render
+     * settings), so reconstructing the recipe outside would drift.
+     */
+    void BuildDrawList( KIGFX::VIEW* aView, DS_DRAW_ITEM_LIST* aDrawList ) const;
+
     bool HitTestDrawingSheetItems( KIGFX::VIEW* aView, const VECTOR2I& aPosition );
 
     /**
