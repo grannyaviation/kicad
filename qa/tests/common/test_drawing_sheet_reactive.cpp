@@ -80,9 +80,13 @@ BOOST_AUTO_TEST_CASE( AttachRegistersProxyAsDependent )
     PAGE_INFO    page;
     TITLE_BLOCK  tb;
 
-    DS_PROXY_VIEW_ITEM proxy( unityScale, &page, nullptr, &tb, nullptr );
-
+    // Tracker first: ~DS_PROXY_VIEW_ITEM unregisters through its stored pointer, so a tracker
+    // declared after the proxy is destroyed before it and the unregister faults.  Declared the
+    // other way round this test segfaulted inside the index's string hashing, nowhere near the
+    // cause.
     TEXT_VAR_TRACKER tracker;
+
+    DS_PROXY_VIEW_ITEM proxy( unityScale, &page, nullptr, &tb, nullptr );
     proxy.AttachToTracker( &tracker );
 
     // The proxy should be registered as a dependent on every title-block key
@@ -101,8 +105,11 @@ BOOST_AUTO_TEST_CASE( InvalidationReachesProxyViaListener )
     PAGE_INFO    page;
     TITLE_BLOCK  tb;
 
-    DS_PROXY_VIEW_ITEM proxy( unityScale, &page, nullptr, &tb, nullptr );
+    // Tracker first, for the reason given in AttachRegistersProxyAsDependent.  This case has the
+    // same use-after-free and merely happened not to fault.
     TEXT_VAR_TRACKER   tracker;
+
+    DS_PROXY_VIEW_ITEM proxy( unityScale, &page, nullptr, &tb, nullptr );
     proxy.AttachToTracker( &tracker );
 
     // Frames install a long-lived listener that routes invalidations to the

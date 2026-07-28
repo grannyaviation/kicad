@@ -158,6 +158,12 @@ public:
      * proxy retains a pointer to @p aTracker and unregisters automatically
      * in its destructor.
      *
+     * @p aTracker must therefore outlive the proxy, or be detached first by
+     * passing nullptr.  The reverse order is a use-after-free with no
+     * diagnostic: the destructor dereferences the stale pointer and faults
+     * somewhere inside the index's string hashing, a long way from the cause.
+     * SCH_VIEW and PCB_EDIT_FRAME both detach explicitly for this reason.
+     *
      * Callers are responsible for attaching a single long-lived invalidate
      * listener to @p aTracker that routes per-proxy invalidations (e.g.,
      * look up the canvas's current drawing sheet and call VIEW::Update on
