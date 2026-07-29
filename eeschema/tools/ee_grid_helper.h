@@ -99,6 +99,32 @@ public:
     static std::optional<BOX2I> GetGraphicAlignmentBox( const EDA_ITEM* aItem );
 
     /**
+     * The box alignment guides measure a *hierarchical sheet pin* by, or nullopt for anything
+     * else.
+     *
+     * A fourth rule for the same reason there is a third: a sheet pin slides along its sheet's
+     * border, and what it lines up with is another sheet pin -- not the sheet body, and certainly
+     * not a symbol.  Sheet pins are not view items (SCH_SCREEN::Append() keeps them out of the
+     * R-tree), so the neighbour sweep reaches them through their parent sheet; see
+     * CollectAlignmentNeighbors().
+     */
+    static std::optional<BOX2I> GetSheetPinAlignmentBox( const EDA_ITEM* aItem );
+
+    /**
+     * True when aSelection is the gesture "move one or more hierarchical sheet pins".
+     *
+     * Deliberately not an all-of test like the graphics one: dragging a sheet pin hauls its
+     * connected wires into the same selection (SCH_MOVE_TOOL::getConnectedDragItems()), and those
+     * are rubber bands, not part of what the user grabbed.  A body in the selection *does*
+     * disqualify it -- that is a sheet or symbol move carrying a pin along, and it has to keep the
+     * body rule.
+     *
+     * Shared by SCH_MOVE_TOOL and the neighbour sweep: the moving box and the targets must be
+     * chosen by the same rule or the guides measure two different things.
+     */
+    static bool IsSheetPinSelection( const SELECTION& aSelection );
+
+    /**
      * True when a point of aItem that has to land on the grid does not.
      *
      * Reads SCH_ITEM::GetConnectionPoints() -- the same points ERC's off-grid endpoint test

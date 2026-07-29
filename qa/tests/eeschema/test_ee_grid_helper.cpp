@@ -25,6 +25,7 @@
 #include <sch_bitmap.h>
 #include <sch_junction.h>
 #include <sch_sheet.h>
+#include <sch_sheet_pin.h>
 #include <sch_pin.h>
 #include <layer_ids.h>
 
@@ -376,6 +377,55 @@ BOOST_AUTO_TEST_CASE( GraphicAlignmentBoxRejectsAnImagelessBitmap )
 
     BOOST_CHECK( !EE_GRID_HELPER::GetGraphicAlignmentBox( &bitmap ).has_value() );
 }
+
+// A hierarchical sheet's pins are what the user lines up when a sub-sheet's inputs on one border
+// have to sit level with its outputs on the other.  Measured as a point, for the reason symbol
+// pins are: the connection point is the thing being aligned, and a zero-size box makes both
+// pin-to-pin alignment and equal pin pitch fall out of the engine unchanged.
+BOOST_AUTO_TEST_CASE( SheetPinAlignmentBoxIsThePinPoint )
+{
+    SCH_SHEET      sheet;
+    SCH_SHEET_PIN  pin( &sheet, VECTOR2I( 2540, -1270 ), wxT( "MISO" ) );
+
+    const std::optional<BOX2I> box = EE_GRID_HELPER::GetSheetPinAlignmentBox( &pin );
+
+    BOOST_REQUIRE( box.has_value() );
+    BOOST_CHECK_EQUAL( box->GetOrigin(), pin.GetPosition() );
+    BOOST_CHECK_EQUAL( box->GetWidth(), 0 );
+    BOOST_CHECK_EQUAL( box->GetHeight(), 0 );
+
+    // The rule is exclusive, like the other three: a sheet-pin drag must not acquire sheet or
+    // graphic targets, and a sheet drag must not acquire pin targets.
+    BOOST_CHECK( !EE_GRID_HELPER::GetSheetPinAlignmentBox( &sheet ).has_value() );
+    BOOST_CHECK( !EE_GRID_HELPER::GetAlignmentBox( &pin ).has_value() );
+    BOOST_CHECK( !EE_GRID_HELPER::GetGraphicAlignmentBox( &pin ).has_value() );
+}
+
+
+// Which box rule applies is decided by the gesture, and "moving a sheet pin" has to survive the
+// wires a drag hauls in alongside the pin -- an all-of test over the selection would not.
+BOOST_AUTO_TEST_CASE( SheetPinSelectionSurvivesDragAdditions )
+{
+    SCH_SHEET     sheet;
+    SCH_SHEET_PIN pin( &sheet, VECTOR2I( 0, 0 ), wxT( "MISO" ) );
+    SCH_LINE      wire( VECTOR2I( 0, 0 ), LAYER_WIRE );
+    SCH_SELECTION sel;
+
+    BOOST_CHECK( !EE_GRID_HELPER::IsSheetPinSelection( sel ) );
+
+    sel.Add( &pin );
+    BOOST_CHECK( EE_GRID_HELPER::IsSheetPinSelection( sel ) );
+
+    // A drag adds the pin's connected wire to the same selection.  Still a pin gesture.
+    sel.Add( &wire );
+    BOOST_CHECK( EE_GRID_HELPER::IsSheetPinSelection( sel ) );
+
+    // A body in the selection is not: that is a sheet/symbol move that happens to carry a pin,
+    // and it has to keep the body rule or the bodies would chase pin points.
+    sel.Add( &sheet );
+    BOOST_CHECK( !EE_GRID_HELPER::IsSheetPinSelection( sel ) );
+}
+
 
 // EE_GRID_HELPER is default-constructible with no tool manager, which is how every test above
 // uses it, and how it is briefly constructed in some tool paths.  The drawing-sheet sweep must

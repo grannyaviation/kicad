@@ -33,6 +33,7 @@
 #include <sch_pin.h>
 #include <sch_shape.h>
 #include <sch_sheet.h>
+#include <sch_sheet_pin.h>
 #include <sch_symbol.h>
 #include <sch_table.h>
 #include <sch_tablecell.h>
@@ -612,6 +613,34 @@ std::optional<BOX2I> EE_GRID_HELPER::GetGraphicAlignmentBox( const EDA_ITEM* aIt
 }
 
 
+std::optional<BOX2I> EE_GRID_HELPER::GetSheetPinAlignmentBox( const EDA_ITEM* aItem )
+{
+    if( aItem->Type() != SCH_SHEET_PIN_T )
+        return std::nullopt;
+
+    // A point, for the reason a symbol pin is one: what the user lines up is where the wire
+    // attaches, and zero size collapses min, max and centre onto it so pin-to-pin alignment and
+    // equal pin pitch both fall out of the engine with no extra machinery.
+    return BOX2I( static_cast<const SCH_SHEET_PIN*>( aItem )->GetPosition(), VECTOR2I( 0, 0 ) );
+}
+
+
+bool EE_GRID_HELPER::IsSheetPinSelection( const SELECTION& aSelection )
+{
+    bool anyPin = false;
+
+    for( const EDA_ITEM* item : aSelection )
+    {
+        if( item->Type() == SCH_SHEET_PIN_T )
+            anyPin = true;
+        else if( GetAlignmentBox( item ) )   // a sheet or symbol body: not a pin gesture
+            return false;
+    }
+
+    return anyPin;
+}
+
+
 void EE_GRID_HELPER::CollectAlignmentNeighbors( const SCH_SELECTION& aSkip )
 {
     ALIGNMENT_GUIDE_ENGINE& engine = getSnapManager().GetAlignmentEngine();
@@ -649,8 +678,47 @@ void EE_GRID_HELPER::CollectAlignmentNeighbors( const SCH_SELECTION& aSkip )
                                          return GetGraphicAlignmentBox( aItem ).has_value();
                                      } );
 
+    // Disjoint from the other two by construction: a sheet pin has no graphic box, so the all_of
+    // above already fails whenever one is in the selection.
+    const bool sheetPinMode = !symbolEditor && IsSheetPinSelection( aSkip );
+
+    // Named, not just measured.  A badge whose other end is off screen is impossible to account
+    // for from coordinates alone, and the commonest surprise is an item nobody thought of as an
+    // alignment target being one.
+    auto pushTarget = [&]( const SCH_ITEM* aItem, const BOX2I& aBox )
+    {
+        if( wxLog::IsAllowedTraceMask( traceSnap ) )
+        {
+            wxLogTrace( traceSnap, "  alignment guides: target %s (%d, %d)-(%d, %d)",
+                        aItem->GetClass(), aBox.GetLeft(), aBox.GetTop(), aBox.GetRight(),
+                        aBox.GetBottom() );
+        }
+
+        boxes.push_back( aBox );
+    };
+
     for( SCH_ITEM* item : queryVisible( viewport, aSkip ) )
     {
+        if( sheetPinMode )
+        {
+            // Sheet pins are not view items -- SCH_SCREEN::Append() keeps them out of the R-tree --
+            // so the query hands back the parent sheet and the pins have to be expanded from it.
+            if( item->Type() != SCH_SHEET_T )
+                continue;
+
+            for( SCH_SHEET_PIN* pin : static_cast<SCH_SHEET*>( item )->GetPins() )
+            {
+                // The dragged pins are children of a sheet that is not itself selected, so
+                // queryVisible()'s by-pointer erase never reaches them.  A target sitting at the
+                // dragged pin's own position is an offset of zero, which wins its axis with an
+                // unbeatable distance and would pin the drag in place with a permanent guide.
+                if( !aSkip.Contains( pin ) )
+                    pushTarget( pin, *GetSheetPinAlignmentBox( pin ) );
+            }
+
+            continue;
+        }
+
         const std::optional<BOX2I> box = symbolEditor  ? GetSymbolAlignmentBox( item )
                                          : m_graphicsMode ? GetGraphicAlignmentBox( item )
                                                           : GetAlignmentBox( item );
@@ -658,17 +726,7 @@ void EE_GRID_HELPER::CollectAlignmentNeighbors( const SCH_SELECTION& aSkip )
         if( !box )
             continue;
 
-        // Named, not just measured.  A badge whose other end is off screen is impossible to
-        // account for from coordinates alone, and the commonest surprise is an item nobody
-        // thought of as an alignment target being one.
-        if( wxLog::IsAllowedTraceMask( traceSnap ) )
-        {
-            wxLogTrace( traceSnap, "  alignment guides: target %s (%d, %d)-(%d, %d)",
-                        item->GetClass(), box->GetLeft(), box->GetTop(), box->GetRight(),
-                        box->GetBottom() );
-        }
-
-        boxes.push_back( *box );
+        pushTarget( item, *box );
     }
 
     // The engine keeps the first candidate on a tie and walks neighbours in input order, so the
@@ -740,6 +798,11 @@ void EE_GRID_HELPER::CollectAlignmentNeighbors( const SCH_SELECTION& aSkip )
         // Offering both would put two centring candidates millimetres apart, one of them on an
         // edge that is never drawn.
         collectDrawingSheetSegments();
+    }
+    else if( sheetPinMode )
+    {
+        // No container.  A sheet pin slides along its sheet's border, so "centred in the page" is
+        // a position it cannot take and a candidate it must not be offered.
     }
     else if( SCH_BASE_FRAME* frame = dynamic_cast<SCH_BASE_FRAME*>( m_toolMgr->GetToolHolder() ) )
     {

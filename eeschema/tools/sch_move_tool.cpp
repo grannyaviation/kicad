@@ -842,13 +842,19 @@ bool SCH_MOVE_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, SCH_COMMIT* aComm
                                                     .has_value();
                                         } );
 
+                // A hierarchical sheet pin is measured by its own rule and aligned to other sheet
+                // pins.  Neither of the two rules above accepts one, so without this a sheet-pin
+                // drag produced an invalid box, lost its move context, and got no guides at all.
+                const bool sheetPinsOnly = EE_GRID_HELPER::IsSheetPinSelection( selection );
+
                 BOX2I guideBBox;
 
                 for( EDA_ITEM* item : selection )
                 {
                     const std::optional<BOX2I> box =
-                            graphicsOnly ? EE_GRID_HELPER::GetGraphicAlignmentBox( item )
-                                         : EE_GRID_HELPER::GetAlignmentBox( item );
+                            sheetPinsOnly ? EE_GRID_HELPER::GetSheetPinAlignmentBox( item )
+                            : graphicsOnly ? EE_GRID_HELPER::GetGraphicAlignmentBox( item )
+                                           : EE_GRID_HELPER::GetAlignmentBox( item );
 
                     if( box )
                         guideBBox.Merge( *box );
@@ -886,6 +892,11 @@ bool SCH_MOVE_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, SCH_COMMIT* aComm
                 {
                     // Graphics prefer guides for the same reason whole symbols do: a logo has no
                     // business snapping to a pin.
+                    //
+                    // Sheet pins deliberately do NOT: a pin is connectable, so it keeps the
+                    // anchor > guide rule every connectable thing here keeps, or dragging a pin
+                    // onto a wire end stops attaching to it.  Anchors only reach 55 mil while
+                    // guides reach two grid steps, so the two barely compete in open border space.
                     grid.SetMoveContext( guideBBox, prevPos, allBodies || graphicsOnly );
 
                     // Must follow SetMoveContext(): the sweep sorts neighbours by distance from
