@@ -28,6 +28,7 @@
 #include <sch_sheet_pin.h>
 #include <sch_pin.h>
 #include <layer_ids.h>
+#include <sch_field.h>
 
 BOOST_AUTO_TEST_SUITE( EEGridHelperTest )
 
@@ -424,6 +425,80 @@ BOOST_AUTO_TEST_CASE( SheetPinSelectionSurvivesDragAdditions )
     // and it has to keep the body rule or the bodies would chase pin points.
     sel.Add( &sheet );
     BOOST_CHECK( !EE_GRID_HELPER::IsSheetPinSelection( sel ) );
+}
+
+
+// Text was excluded from the guides originally because font metrics make a poor reference.  The
+// exclusion is lifted deliberately: what the user wants lined up is a column of reference
+// designators, and that means the box the eye sees, not the anchor point the file stores.
+BOOST_AUTO_TEST_CASE( TextAlignmentBoxIsTheTextBox )
+{
+    SCH_TEXT text;
+    text.SetText( wxT( "Notes" ) );
+    text.SetPosition( VECTOR2I( 2540, -1270 ) );
+
+    const std::optional<BOX2I> textBox = EE_GRID_HELPER::GetTextAlignmentBox( &text );
+
+    BOOST_REQUIRE( textBox.has_value() );
+    BOOST_CHECK_EQUAL( textBox->GetOrigin(), text.GetBoundingBox().GetOrigin() );
+    BOOST_CHECK_EQUAL( textBox->GetEnd(), text.GetBoundingBox().GetEnd() );
+    BOOST_CHECK( textBox->GetWidth() > 0 );
+    BOOST_CHECK( textBox->GetHeight() > 0 );
+
+    SCH_SHEET sheet;
+    SCH_FIELD field( &sheet, FIELD_T::USER, wxT( "Ref" ) );
+    field.SetText( wxT( "U1" ) );
+    field.SetVisible( true );
+
+    const std::optional<BOX2I> fieldBox = EE_GRID_HELPER::GetTextAlignmentBox( &field );
+
+    BOOST_REQUIRE( fieldBox.has_value() );
+    BOOST_CHECK_EQUAL( fieldBox->GetOrigin(), field.GetBoundingBox().GetOrigin() );
+    BOOST_CHECK_EQUAL( fieldBox->GetEnd(), field.GetBoundingBox().GetEnd() );
+
+    // A guide against text nobody can see is a lie, and an empty field has no box worth drawing.
+    field.SetVisible( false );
+    BOOST_CHECK( !EE_GRID_HELPER::GetTextAlignmentBox( &field ).has_value() );
+
+    field.SetVisible( true );
+    field.SetText( wxEmptyString );
+    BOOST_CHECK( !EE_GRID_HELPER::GetTextAlignmentBox( &field ).has_value() );
+
+    // Exclusive against the other four rules, like each of them is against the rest.
+    BOOST_CHECK( !EE_GRID_HELPER::GetTextAlignmentBox( &sheet ).has_value() );
+    BOOST_CHECK( !EE_GRID_HELPER::GetAlignmentBox( &text ).has_value() );
+    BOOST_CHECK( !EE_GRID_HELPER::GetGraphicAlignmentBox( &text ).has_value() );
+    BOOST_CHECK( !EE_GRID_HELPER::GetSymbolAlignmentBox( &text ).has_value() );
+    BOOST_CHECK( !EE_GRID_HELPER::GetSheetPinAlignmentBox( &text ).has_value() );
+}
+
+
+// All-of, unlike the sheet-pin predicate.  A sheet pin drag hauls its connected wires into the
+// selection and the predicate has to tolerate them; neither a field nor free text connects to
+// anything, so there are no drag additions and the stricter test is the correct one.
+BOOST_AUTO_TEST_CASE( TextSelectionRejectsBodies )
+{
+    SCH_SHEET sheet;
+    SCH_FIELD field( &sheet, FIELD_T::USER, wxT( "Ref" ) );
+    field.SetText( wxT( "U1" ) );
+    field.SetVisible( true );
+
+    SCH_TEXT text;
+    text.SetText( wxT( "Notes" ) );
+
+    SCH_SELECTION sel;
+    BOOST_CHECK( !EE_GRID_HELPER::IsTextSelection( sel ) );
+
+    sel.Add( &field );
+    BOOST_CHECK( EE_GRID_HELPER::IsTextSelection( sel ) );
+
+    sel.Add( &text );
+    BOOST_CHECK( EE_GRID_HELPER::IsTextSelection( sel ) );
+
+    // A body in the selection is a symbol or sheet move carrying its fields along, and it has to
+    // keep the body rule or the body would chase its own reference designator.
+    sel.Add( &sheet );
+    BOOST_CHECK( !EE_GRID_HELPER::IsTextSelection( sel ) );
 }
 
 

@@ -125,6 +125,36 @@ public:
     static bool IsSheetPinSelection( const SELECTION& aSelection );
 
     /**
+     * The box alignment guides measure a *schematic text item* by, or nullopt for anything else.
+     *
+     * Fields and free text only -- SCH_FIELD_T and SCH_TEXT_T.  Text boxes already align under the
+     * graphic rule, and a net label is connectable, so it must keep whole-grid-step offsets and
+     * anchor-beats-guide.
+     *
+     * The drawn box, deliberately not the anchor point the other point rules use.  Anchors only
+     * line up visually when two texts share a justification, and what the user wants is a column
+     * of reference designators that reads flush.  The price is that the box moves when the string
+     * does: renaming U1 to U10 shifts its right edge.
+     *
+     * Invisible fields, empty text and degenerate boxes are rejected -- a guide against something
+     * nobody can see is a lie.
+     */
+    static std::optional<BOX2I> GetTextAlignmentBox( const EDA_ITEM* aItem );
+
+    /**
+     * True when aSelection is the gesture "move one or more fields or free text items".
+     *
+     * All-of, unlike IsSheetPinSelection(): a sheet pin drag hauls its connected wires into the
+     * same selection, but text connects to nothing, so there are no drag additions to tolerate.  A
+     * body in the selection makes it false, which keeps a whole-symbol move on the body rule with
+     * its fields riding along.
+     *
+     * Shared by SCH_MOVE_TOOL and the neighbour sweep: the moving box and the targets must be
+     * chosen by the same rule or the guides measure two different things.
+     */
+    static bool IsTextSelection( const SELECTION& aSelection );
+
+    /**
      * True when a point of aItem that has to land on the grid does not.
      *
      * Reads SCH_ITEM::GetConnectionPoints() -- the same points ERC's off-grid endpoint test

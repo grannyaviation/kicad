@@ -27,6 +27,7 @@
 #include <drawing_sheet/ds_proxy_view_item.h>
 #include <gal/graphics_abstraction_layer.h>
 #include <sch_draw_panel.h>
+#include <sch_field.h>
 #include <sch_group.h>
 #include <sch_item.h>
 #include <sch_line.h>
@@ -37,6 +38,7 @@
 #include <sch_symbol.h>
 #include <sch_table.h>
 #include <sch_tablecell.h>
+#include <sch_text.h>
 #include <sch_painter.h>
 #include <sch_view.h>
 #include <trace_helpers.h>
@@ -638,6 +640,65 @@ bool EE_GRID_HELPER::IsSheetPinSelection( const SELECTION& aSelection )
     }
 
     return anyPin;
+}
+
+
+std::optional<BOX2I> EE_GRID_HELPER::GetTextAlignmentBox( const EDA_ITEM* aItem )
+{
+    const EDA_TEXT* text = nullptr;
+
+    switch( aItem->Type() )
+    {
+    case SCH_FIELD_T:
+    {
+        const SCH_FIELD* field = static_cast<const SCH_FIELD*>( aItem );
+
+        // A hidden reference or value still has a position and a box.  Drawing a guide against
+        // one would line the user up with something that is not on the page.
+        if( !field->IsVisible() )
+            return std::nullopt;
+
+        text = field;
+        break;
+    }
+
+    case SCH_TEXT_T:
+        // Only plain text.  SCH_LABEL and friends derive from SCH_TEXT but carry their own type
+        // ids, so they never reach here -- which is what keeps connectable items on the strict
+        // rule.
+        text = static_cast<const SCH_TEXT*>( aItem );
+        break;
+
+    default:
+        return std::nullopt;
+    }
+
+    // Tested on the string rather than on the resulting box: an empty string's text box is a
+    // font-dependent sliver, not reliably zero, and a sliver at the item's position would win an
+    // axis with an offset no user can see the reason for.
+    if( text->GetText().IsEmpty() )
+        return std::nullopt;
+
+    const BOX2I box = aItem->GetBoundingBox();
+
+    // Both implementations normalise and apply rotation -- and, for a field, the parent symbol's
+    // transform -- so this is the box KiCad hit-tests, i.e. the one the eye sees.  The guards are
+    // for the degenerate cases the font machinery can still produce.
+    if( !box.IsValid() || box.GetWidth() <= 0 || box.GetHeight() <= 0 )
+        return std::nullopt;
+
+    return box;
+}
+
+
+bool EE_GRID_HELPER::IsTextSelection( const SELECTION& aSelection )
+{
+    return !aSelection.Empty()
+           && std::all_of( aSelection.begin(), aSelection.end(),
+                           []( const EDA_ITEM* aItem )
+                           {
+                               return GetTextAlignmentBox( aItem ).has_value();
+                           } );
 }
 
 
