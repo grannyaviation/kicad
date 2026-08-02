@@ -127,9 +127,10 @@ public:
     /**
      * The box alignment guides measure a *schematic text item* by, or nullopt for anything else.
      *
-     * Fields and free text only -- SCH_FIELD_T and SCH_TEXT_T.  Text boxes already align under the
-     * graphic rule, and a net label is connectable, so it must keep whole-grid-step offsets and
-     * anchor-beats-guide.
+     * Fields and free text only -- SCH_FIELD_T and SCH_TEXT_T.  A text box is a drawn rectangle
+     * that happens to contain text, and a net label is connectable, so it would have to keep
+     * whole-grid-step offsets and anchor-beats-guide.  Neither is in scope, and neither gets
+     * alignment guides from any of the five rules today.
      *
      * The drawn box, deliberately not the anchor point the other point rules use.  Anchors only
      * line up visually when two texts share a justification, and what the user wants is a column
