@@ -216,7 +216,7 @@ VECTOR2I EE_GRID_HELPER::BestSnapAnchor( const VECTOR2I& aOrigin, GRID_HELPER_GR
     // selection containing anything connectable stays strict.
     std::optional<VECTOR2I> gridStep;
 
-    if( canUseGrid() && !m_graphicsMode )
+    if( canUseGrid() && !m_graphicsMode && !m_textMode )
         gridStep = KiROUND( gridSize );
 
     // At least +/-2 grid steps, whatever the grid.  Reusing snapRange alone would make the
@@ -454,7 +454,7 @@ VECTOR2I EE_GRID_HELPER::AlignPointToGuides( const VECTOR2I&      aPoint,
     // A graphic has no pins to drag off grid, so it is exempt; see BestSnapAnchor().
     std::optional<VECTOR2I> gridStep;
 
-    if( canUseGrid() && !m_graphicsMode )
+    if( canUseGrid() && !m_graphicsMode && !m_textMode )
         gridStep = KiROUND( gridSize );
 
     const int range = 2 * KiROUND( std::max( gridSize.x, gridSize.y ) );
@@ -743,6 +743,24 @@ void EE_GRID_HELPER::CollectAlignmentNeighbors( const SCH_SELECTION& aSkip )
     // above already fails whenever one is in the selection.
     const bool sheetPinMode = !symbolEditor && IsSheetPinSelection( aSkip );
 
+    // Also disjoint: neither a field nor free text has a graphic box or a sheet-pin box, so both
+    // tests above already fail whenever one is in the selection.
+    m_textMode = !symbolEditor && IsTextSelection( aSkip );
+
+    // The drawing-sheet cell as a container, rebuilt per motion.  Graphics always; text only when
+    // no field is in the selection.  The cell spans the page, so as a neighbour it merges every
+    // other target into a single cluster and the equal-gap search never runs -- which would cost a
+    // reference-designator column its equal-pitch badges, a likelier want than centring a refdes
+    // on the page.  Free text loses those badges and gains title-block centring, which is the
+    // right trade for a notes block.
+    m_dynamicCells = m_graphicsMode
+                     || ( m_textMode
+                          && std::none_of( aSkip.begin(), aSkip.end(),
+                                           []( const EDA_ITEM* aItem )
+                                           {
+                                               return aItem->Type() == SCH_FIELD_T;
+                                           } ) );
+
     // Named, not just measured.  A badge whose other end is off screen is impossible to account
     // for from coordinates alone, and the commonest surprise is an item nobody thought of as an
     // alignment target being one.
@@ -776,6 +794,44 @@ void EE_GRID_HELPER::CollectAlignmentNeighbors( const SCH_SELECTION& aSkip )
                 if( !aSkip.Contains( pin ) )
                     pushTarget( pin, *GetSheetPinAlignmentBox( pin ) );
             }
+
+            continue;
+        }
+
+        if( m_textMode )
+        {
+            // Fields are not view items -- SCH_SCREEN::Append() keeps SCH_FIELD_T out of the
+            // R-tree by the same guard that keeps SCH_SHEET_PIN_T out -- so the query hands back
+            // the owning symbol or sheet and the fields have to be expanded from it.
+            std::vector<SCH_FIELD>* fields = nullptr;
+
+            if( item->Type() == SCH_SYMBOL_T )
+                fields = &static_cast<SCH_SYMBOL*>( item )->GetFields();
+            else if( item->Type() == SCH_SHEET_T )
+                fields = &static_cast<SCH_SHEET*>( item )->GetFields();
+
+            if( fields )
+            {
+                for( SCH_FIELD& field : *fields )
+                {
+                    // The dragged field's parent is not itself selected, so queryVisible()'s
+                    // by-pointer erase never reaches the field.  A target sitting on top of the
+                    // moving box is an offset of zero, which wins its axis with an unbeatable
+                    // distance and would freeze the drag under a permanent guide.
+                    if( aSkip.Contains( &field ) )
+                        continue;
+
+                    if( const std::optional<BOX2I> fieldBox = GetTextAlignmentBox( &field ) )
+                        pushTarget( &field, *fieldBox );
+                }
+            }
+
+            // Text aligns to text and to bodies both, so this item contributes whichever it has:
+            // its text box if it is free text, otherwise its body box if it is a symbol or sheet.
+            if( const std::optional<BOX2I> textBox = GetTextAlignmentBox( item ) )
+                pushTarget( item, *textBox );
+            else if( const std::optional<BOX2I> bodyBox = GetAlignmentBox( item ) )
+                pushTarget( item, *bodyBox );
 
             continue;
         }
@@ -824,8 +880,8 @@ void EE_GRID_HELPER::CollectAlignmentNeighbors( const SCH_SELECTION& aSkip )
     }
 
     // Copied before the move: updateDynamicContainers() rebuilds the list every motion.
-    if( m_graphicsMode )
-        m_graphicsNeighbors = boxes;
+    if( m_dynamicCells )
+        m_dynamicNeighbors = boxes;
 
     engine.SetNeighbors( std::move( boxes ) );
 
@@ -848,9 +904,9 @@ void EE_GRID_HELPER::CollectAlignmentNeighbors( const SCH_SELECTION& aSkip )
                 engine.SetContainers( { body } );
         }
     }
-    else if( m_graphicsMode )
+    else if( m_dynamicCells )
     {
-        // No static container in graphics mode.  The container is the drawing-sheet cell the
+        // No static container here.  The container is the drawing-sheet cell the
         // item is currently over, which changes as the user carries it across the page, so it is
         // set per motion by updateDynamicContainers().
         //
@@ -860,10 +916,15 @@ void EE_GRID_HELPER::CollectAlignmentNeighbors( const SCH_SELECTION& aSkip )
         // edge that is never drawn.
         collectDrawingSheetSegments();
     }
-    else if( sheetPinMode )
+    else if( sheetPinMode || m_textMode )
     {
         // No container.  A sheet pin slides along its sheet's border, so "centred in the page" is
         // a position it cannot take and a candidate it must not be offered.
+        //
+        // Text reaches here only when the selection holds a field, i.e. when m_dynamicCells was
+        // deliberately refused above so the field keeps its equal-pitch badges.  The page
+        // rectangle below is not an acceptable substitute: it is the *paper*, and the drawing
+        // frame the user sees is inset from it by the sheet margins.
     }
     else if( SCH_BASE_FRAME* frame = dynamic_cast<SCH_BASE_FRAME*>( m_toolMgr->GetToolHolder() ) )
     {
@@ -893,8 +954,10 @@ SYMBOL_EDIT_FRAME* EE_GRID_HELPER::inSymbolEditor() const
 void EE_GRID_HELPER::clearMoveState()
 {
     m_sheetSegments.clear();
-    m_graphicsNeighbors.clear();
+    m_dynamicNeighbors.clear();
     m_graphicsMode = false;
+    m_textMode = false;
+    m_dynamicCells = false;
 }
 
 
@@ -957,7 +1020,7 @@ void EE_GRID_HELPER::collectDrawingSheetSegments()
 
 void EE_GRID_HELPER::updateDynamicContainers( const BOX2I& aMovingBox )
 {
-    if( !m_graphicsMode )
+    if( !m_dynamicCells )
         return;
 
     ALIGNMENT_GUIDE_ENGINE& engine = getSnapManager().GetAlignmentEngine();
@@ -975,7 +1038,7 @@ void EE_GRID_HELPER::updateDynamicContainers( const BOX2I& aMovingBox )
     // page and carries it to the corner box, so the cell changes mid-drag.  Dropped entirely when
     // the item is over no cell, or a logo dragged off the title block keeps being pulled back
     // into the cell it just left.
-    std::vector<BOX2I> neighbors = m_graphicsNeighbors;
+    std::vector<BOX2I> neighbors = m_dynamicNeighbors;
 
     if( cell )
         neighbors.push_back( *cell );

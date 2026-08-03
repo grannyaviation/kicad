@@ -215,14 +215,24 @@ private:
     /// graphics mode.
     std::vector<SEG> m_sheetSegments;
 
-    /// The graphics neighbours collected at drag start.  Kept because updateDynamicContainers()
-    /// re-sets the engine's neighbour list on every motion to append the cell the item is
-    /// currently over, and would otherwise drop them.
-    std::vector<BOX2I> m_graphicsNeighbors;
+    /// The neighbours collected at drag start, in the modes that use a dynamic container.  Kept
+    /// because updateDynamicContainers() re-sets the engine's neighbour list on every motion to
+    /// append the cell the item is currently over, and would otherwise drop them.
+    std::vector<BOX2I> m_dynamicNeighbors;
 
     /// This drag is moving graphics only, so the graphic box rule applies, the drawing sheet is
     /// a target, and offsets need not be whole grid steps.
     bool m_graphicsMode = false;
+
+    /// This drag is moving fields or free text only, so the text box rule applies and offsets
+    /// need not be whole grid steps -- glyph extents are not grid multiples, so enforcing them
+    /// would make the feature silent rather than strict.  Safe because text has no connection
+    /// points to drag off a net.
+    bool m_textMode = false;
+
+    /// The drawing-sheet cell under the moving box is offered as a container, rebuilt per motion.
+    /// Graphics always; text only when no field is selected -- see CollectAlignmentNeighbors().
+    bool m_dynamicCells = false;
 
     /// The symbol editor frame this helper belongs to, or nullptr in the schematic.  The two
     /// editors have entirely different ideas of what an alignment target is, and one sweep
