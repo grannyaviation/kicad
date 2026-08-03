@@ -606,6 +606,12 @@ std::optional<BOX2I> EE_GRID_HELPER::GetGraphicAlignmentBox( const EDA_ITEM* aIt
         return box;
     }
 
+    // A text box is a drawn rectangle that happens to contain text, and it is the rectangle the
+    // user positions -- which is why GetItemGrid() already puts it on the graphic grid.  So it
+    // belongs here rather than with the text rule: it lines up with logos, separators and the
+    // drawing sheet, and never chases a reference designator.  SCH_TEXTBOX derives from SCH_SHAPE,
+    // so the shared rule measures its border with no special case of its own.
+    case SCH_TEXTBOX_T:
     case SCH_SHAPE_T:
         return shapeAlignmentBox( static_cast<const SCH_SHAPE*>( aItem ) );
 

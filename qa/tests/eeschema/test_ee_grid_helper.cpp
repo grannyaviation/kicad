@@ -29,6 +29,7 @@
 #include <sch_pin.h>
 #include <layer_ids.h>
 #include <sch_field.h>
+#include <sch_textbox.h>
 
 BOOST_AUTO_TEST_SUITE( EEGridHelperTest )
 
@@ -532,6 +533,35 @@ BOOST_AUTO_TEST_CASE( TextSelectionRejectsBodies )
     // keep the body rule or the body would chase its own reference designator.
     sel.Add( &sheet );
     BOOST_CHECK( !EE_GRID_HELPER::IsTextSelection( sel ) );
+}
+
+
+// A text box is a drawn rectangle that happens to contain text, which is why GetItemGrid() already
+// puts it on the graphic grid -- its border is the thing that has to sit somewhere sensible.  It
+// therefore belongs to the graphic rule, not the text one: it aligns to logos, separators and the
+// drawing sheet, and never chases a reference designator.
+BOOST_AUTO_TEST_CASE( TextBoxAlignsAsAGraphic )
+{
+    SCH_TEXTBOX box;
+    box.SetStart( VECTOR2I( 1000, 2000 ) );
+    box.SetEnd( VECTOR2I( 6000, 5000 ) );
+    box.SetWidth( 200 );
+
+    const std::optional<BOX2I> graphicBox = EE_GRID_HELPER::GetGraphicAlignmentBox( &box );
+
+    BOOST_REQUIRE( graphicBox.has_value() );
+
+    // The authored rectangle, not the half-stroke halo EDA_SHAPE::getBoundingBox() adds.  Half a
+    // stroke is not a whole grid step, so a box measured that way could never align on grid to a
+    // shape drawn with a different pen width.
+    BOOST_CHECK_EQUAL( graphicBox->GetOrigin(), VECTOR2I( 1000, 2000 ) );
+    BOOST_CHECK_EQUAL( graphicBox->GetEnd(), VECTOR2I( 6000, 5000 ) );
+
+    // Exclusive against the other four, so a text box drag can never acquire text or body targets.
+    BOOST_CHECK( !EE_GRID_HELPER::GetTextAlignmentBox( &box ).has_value() );
+    BOOST_CHECK( !EE_GRID_HELPER::GetAlignmentBox( &box ).has_value() );
+    BOOST_CHECK( !EE_GRID_HELPER::GetSheetPinAlignmentBox( &box ).has_value() );
+    BOOST_CHECK( !EE_GRID_HELPER::GetSymbolAlignmentBox( &box ).has_value() );
 }
 
 
