@@ -211,8 +211,9 @@ private:
 
     void updateDynamicContainers( const BOX2I& aMovingBox ) override;
 
-    /// The drawing sheet's lines and rect edges, for ALIGN_GEOM::CellAt.  Only populated in
-    /// graphics mode.
+    /// The drawing sheet's lines and rect edges, for ALIGN_GEOM::CellAt.  Only populated in the
+    /// modes that take a dynamic container, i.e. wherever m_dynamicCells is set: graphics always,
+    /// and text when no field is selected.
     std::vector<SEG> m_sheetSegments;
 
     /// The neighbours collected at drag start, in the modes that use a dynamic container.  Kept
