@@ -847,12 +847,18 @@ bool SCH_MOVE_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, SCH_COMMIT* aComm
                 // drag produced an invalid box, lost its move context, and got no guides at all.
                 const bool sheetPinsOnly = EE_GRID_HELPER::IsSheetPinSelection( selection );
 
+                // Fields and free text likewise, and for the same reason.  All-of rather than
+                // any-of: text connects to nothing, so a drag hauls no wires in alongside it and
+                // there is nothing to tolerate.
+                const bool textOnly = EE_GRID_HELPER::IsTextSelection( selection );
+
                 BOX2I guideBBox;
 
                 for( EDA_ITEM* item : selection )
                 {
                     const std::optional<BOX2I> box =
                             sheetPinsOnly ? EE_GRID_HELPER::GetSheetPinAlignmentBox( item )
+                            : textOnly    ? EE_GRID_HELPER::GetTextAlignmentBox( item )
                             : graphicsOnly ? EE_GRID_HELPER::GetGraphicAlignmentBox( item )
                                            : EE_GRID_HELPER::GetAlignmentBox( item );
 
@@ -891,13 +897,15 @@ bool SCH_MOVE_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, SCH_COMMIT* aComm
                 if( guideBBox.IsValid() )
                 {
                     // Graphics prefer guides for the same reason whole symbols do: a logo has no
-                    // business snapping to a pin.
+                    // business snapping to a pin.  Text is the same case -- a reference designator
+                    // dropped near a pin should line up with the designator above it, not jump
+                    // onto the pin, and anchors are checked first without this.
                     //
                     // Sheet pins deliberately do NOT: a pin is connectable, so it keeps the
                     // anchor > guide rule every connectable thing here keeps, or dragging a pin
                     // onto a wire end stops attaching to it.  Anchors only reach 55 mil while
                     // guides reach two grid steps, so the two barely compete in open border space.
-                    grid.SetMoveContext( guideBBox, prevPos, allBodies || graphicsOnly );
+                    grid.SetMoveContext( guideBBox, prevPos, allBodies || graphicsOnly || textOnly );
 
                     // Must follow SetMoveContext(): the sweep sorts neighbours by distance from
                     // OriginalBBox.Centre().
