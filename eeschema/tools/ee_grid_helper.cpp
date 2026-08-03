@@ -673,10 +673,12 @@ std::optional<BOX2I> EE_GRID_HELPER::GetTextAlignmentBox( const EDA_ITEM* aItem 
         return std::nullopt;
     }
 
-    // Tested on the string rather than on the resulting box: an empty string's text box is a
-    // font-dependent sliver, not reliably zero, and a sliver at the item's position would win an
-    // axis with an offset no user can see the reason for.
-    if( text->GetText().IsEmpty() )
+    // Tested on the shown string, not the stored one, and by the same GetShownText(true) call
+    // GetTextBox() below makes: a SCH_FIELD with its name shown renders "Name: " even when the
+    // stored value is empty, so GetText() and the box it hit-tests to would disagree.  An empty
+    // string's text box is otherwise a font-dependent sliver, not reliably zero, and a sliver at
+    // the item's position would win an axis with an offset no user can see the reason for.
+    if( text->GetShownText( true ).IsEmpty() )
         return std::nullopt;
 
     const BOX2I box = aItem->GetBoundingBox();
@@ -805,7 +807,12 @@ void EE_GRID_HELPER::CollectAlignmentNeighbors( const SCH_SELECTION& aSkip )
             // the owning symbol or sheet and the fields have to be expanded from it.
             std::vector<SCH_FIELD>* fields = nullptr;
 
-            if( item->Type() == SCH_SYMBOL_T )
+            // Power ports are excluded here for the same reason GetAlignmentBox() excludes
+            // their body: a sheet has far more power flags than components, and aligning to a
+            // GND flag is never what the user meant.  Left unfiltered, a power symbol's value
+            // glyph (e.g. "+3V3") would contribute that same unwanted target through its field
+            // instead, crowding a decoupling-cap farm's reference-designator column.
+            if( item->Type() == SCH_SYMBOL_T && !static_cast<SCH_SYMBOL*>( item )->IsPower() )
                 fields = &static_cast<SCH_SYMBOL*>( item )->GetFields();
             else if( item->Type() == SCH_SHEET_T )
                 fields = &static_cast<SCH_SHEET*>( item )->GetFields();

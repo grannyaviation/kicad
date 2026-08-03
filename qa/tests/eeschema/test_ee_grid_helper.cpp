@@ -470,6 +470,39 @@ BOOST_AUTO_TEST_CASE( TextAlignmentBoxIsTheTextBox )
     BOOST_CHECK( !EE_GRID_HELPER::GetGraphicAlignmentBox( &text ).has_value() );
     BOOST_CHECK( !EE_GRID_HELPER::GetSymbolAlignmentBox( &text ).has_value() );
     BOOST_CHECK( !EE_GRID_HELPER::GetSheetPinAlignmentBox( &text ).has_value() );
+
+    // A field is exclusive against the other four rules too -- checked separately from the
+    // SCH_TEXT instance above, since a field's body ownership makes it a different degenerate
+    // case from a free-standing text item.
+    BOOST_CHECK( !EE_GRID_HELPER::GetAlignmentBox( &field ).has_value() );
+    BOOST_CHECK( !EE_GRID_HELPER::GetGraphicAlignmentBox( &field ).has_value() );
+    BOOST_CHECK( !EE_GRID_HELPER::GetSymbolAlignmentBox( &field ).has_value() );
+    BOOST_CHECK( !EE_GRID_HELPER::GetSheetPinAlignmentBox( &field ).has_value() );
+}
+
+
+// GetTextBox() measures GetShownText(true), which for a field with its name shown prepends
+// "Name: " even when the stored value is empty.  The emptiness guard in GetTextAlignmentBox()
+// has to agree with that or a real, hit-testable box gets rejected as if there were nothing
+// there -- silently, since a dropped guide leaves no message on screen.
+BOOST_AUTO_TEST_CASE( TextAlignmentBoxGuardMatchesShownText )
+{
+    SCH_SHEET sheet;
+    SCH_FIELD field( &sheet, FIELD_T::USER, wxT( "Rev" ) );
+    field.SetText( wxEmptyString );
+    field.SetVisible( true );
+    field.SetNameShown( true );
+
+    const std::optional<BOX2I> shownBox = EE_GRID_HELPER::GetTextAlignmentBox( &field );
+
+    BOOST_REQUIRE( shownBox.has_value() );
+    BOOST_CHECK( shownBox->GetWidth() > 0 );
+    BOOST_CHECK( shownBox->GetHeight() > 0 );
+
+    // Name hidden again: an empty value with nothing shown really does draw nothing, and must
+    // stay rejected.
+    field.SetNameShown( false );
+    BOOST_CHECK( !EE_GRID_HELPER::GetTextAlignmentBox( &field ).has_value() );
 }
 
 

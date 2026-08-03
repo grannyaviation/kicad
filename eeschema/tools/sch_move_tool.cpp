@@ -918,6 +918,14 @@ bool SCH_MOVE_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, SCH_COMMIT* aComm
                 else
                 {
                     grid.ClearMoveContext();
+
+                    // Re-arm the one-shot sweep: ClearMoveContext() just emptied the engine's
+                    // neighbour list, and collectGuideNeighbors was already consumed by an
+                    // earlier motion in this same drag.  Without this, the next SetMoveContext()
+                    // above -- e.g. after a mid-drag Change To that goes invalid and back --
+                    // finds a guide-eligible box but no neighbours, and the sweep never reruns
+                    // to fill it back in.
+                    collectGuideNeighbors = true;
                 }
 
                 updateBBox = false;
