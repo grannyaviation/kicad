@@ -30,6 +30,7 @@
 #include <layer_ids.h>
 #include <sch_field.h>
 #include <sch_textbox.h>
+#include <lib_symbol.h>
 
 BOOST_AUTO_TEST_SUITE( EEGridHelperTest )
 
@@ -533,6 +534,39 @@ BOOST_AUTO_TEST_CASE( TextSelectionRejectsBodies )
     // keep the body rule or the body would chase its own reference designator.
     sel.Add( &sheet );
     BOOST_CHECK( !EE_GRID_HELPER::IsTextSelection( sel ) );
+}
+
+
+// A field owned by a LIB_SYMBOL, i.e. one being dragged in the symbol editor.  Different enough
+// from the sheet-owned case above to be worth its own check: GetBoundingBox() applies a parent
+// transform only for SCH_SYMBOL_T, GetShownText() takes a whole different branch when there is no
+// SCHEMATIC to resolve variables against, and the symbol editor has neither.  A degenerate box
+// here would leave the drag with an invalid moving box and therefore no guides at all -- silently,
+// which is exactly how the missing symbol-editor support presented.
+BOOST_AUTO_TEST_CASE( LibSymbolFieldAlignsAsText )
+{
+    LIB_SYMBOL symbol( wxT( "R" ) );
+
+    SCH_FIELD* reference = symbol.GetField( FIELD_T::REFERENCE );
+    BOOST_REQUIRE( reference );
+    reference->SetText( wxT( "R" ) );
+    reference->SetVisible( true );
+
+    const std::optional<BOX2I> refBox = EE_GRID_HELPER::GetTextAlignmentBox( reference );
+
+    BOOST_REQUIRE( refBox.has_value() );
+    BOOST_CHECK( refBox->GetWidth() > 0 );
+    BOOST_CHECK( refBox->GetHeight() > 0 );
+    BOOST_CHECK_EQUAL( refBox->GetOrigin(), reference->GetBoundingBox().GetOrigin() );
+
+    // The gesture test is what routes the drag to the text rule instead of the symbol editor's
+    // own pin-and-shape rule, so the two must agree on a lib field.
+    SCH_SELECTION sel;
+    sel.Add( reference );
+    BOOST_CHECK( EE_GRID_HELPER::IsTextSelection( sel ) );
+
+    // And the symbol editor's own rule still refuses it, so the two never both claim the drag.
+    BOOST_CHECK( !EE_GRID_HELPER::GetSymbolAlignmentBox( reference ).has_value() );
 }
 
 
