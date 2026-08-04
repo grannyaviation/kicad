@@ -282,14 +282,18 @@ bool SYMBOL_EDITOR_MOVE_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, SCH_COM
             if( updateBBox )
             {
                 // Measured exactly as CollectAlignmentNeighbors() measures neighbours -- hence
-                // the shared GetSymbolAlignmentBox() -- or the guides align edges that are not
-                // where the user sees them.
+                // the shared rules, and hence the same gesture test picking between them -- or
+                // the guides align edges that are not where the user sees them.
+                const bool textOnly = EE_GRID_HELPER::IsTextSelection( selection );
+
                 BOX2I guideBBox;
                 bool  allBodies = !selection.Empty();
 
                 for( EDA_ITEM* item : selection )
                 {
-                    const std::optional<BOX2I> box = EE_GRID_HELPER::GetSymbolAlignmentBox( item );
+                    const std::optional<BOX2I> box =
+                            textOnly ? EE_GRID_HELPER::GetTextAlignmentBox( item )
+                                     : EE_GRID_HELPER::GetSymbolAlignmentBox( item );
 
                     if( box )
                         guideBBox.Merge( *box );
@@ -327,6 +331,14 @@ bool SYMBOL_EDITOR_MOVE_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, SCH_COM
                 else
                 {
                     grid.ClearMoveContext();
+
+                    // Re-arm the one-shot sweep: ClearMoveContext() just emptied the engine's
+                    // neighbour list, and the flag may already have been consumed by an earlier
+                    // motion in this same drag.  Reachable because updateBBox is re-raised after
+                    // every passed-through event, so a properties edit that hides the field being
+                    // dragged lands here and the next one un-hides it.  Without this the drag
+                    // would finish with no guides at all.
+                    collectGuideNeighbors = true;
                 }
 
                 updateBBox = false;

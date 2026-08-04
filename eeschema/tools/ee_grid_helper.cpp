@@ -561,8 +561,11 @@ std::optional<BOX2I> EE_GRID_HELPER::GetSymbolAlignmentBox( const EDA_ITEM* aIte
         return shapeAlignmentBox( static_cast<const SCH_SHAPE*>( aItem ) );
 
     default:
-        // Text, text boxes and fields: extents depend on font metrics and on whether a field is
-        // visible, and the width of a pin name is not something anyone aligns to.
+        // Text boxes, and the pin name and number glyphs that come with a pin rather than as items
+        // of their own: extents depend on font metrics, and the width of a pin name is not
+        // something anyone aligns to.  Fields and free text are not rejected so much as handled
+        // elsewhere -- they are their own items here, they are dragged on their own, and the
+        // gesture that grabs one picks GetTextAlignmentBox() instead of this rule.
         return std::nullopt;
     }
 }
@@ -753,7 +756,12 @@ void EE_GRID_HELPER::CollectAlignmentNeighbors( const SCH_SELECTION& aSkip )
 
     // Also disjoint: neither a field nor free text has a graphic box or a sheet-pin box, so both
     // tests above already fail whenever one is in the selection.
-    m_textMode = !symbolEditor && IsTextSelection( aSkip );
+    //
+    // The only one of the three modes that is not gated on !symbolEditor.  A symbol's fields and
+    // its free text are exactly the same classes there, they are drawn glyphs the author drags
+    // into place, and the reference designator wanting to sit level with the value is the same
+    // want in both editors.  What they align *to* differs, and that is handled below.
+    m_textMode = IsTextSelection( aSkip );
 
     // The drawing-sheet cell as a container, rebuilt per motion.  Graphics always; text only when
     // no field is in the selection.  The cell spans the page, so as a neighbour it merges every
@@ -761,8 +769,11 @@ void EE_GRID_HELPER::CollectAlignmentNeighbors( const SCH_SELECTION& aSkip )
     // reference-designator column its equal-pitch badges, a likelier want than centring a refdes
     // on the page.  Free text loses those badges and gains title-block centring, which is the
     // right trade for a notes block.
+    //
+    // Never in the symbol editor: there is no drawing sheet to take cells from, and the container
+    // that editor does have -- the symbol body outline -- is set unconditionally further down.
     m_dynamicCells = m_graphicsMode
-                     || ( m_textMode
+                     || ( m_textMode && !symbolEditor
                           && std::none_of( aSkip.begin(), aSkip.end(),
                                            []( const EDA_ITEM* aItem )
                                            {
@@ -808,9 +819,12 @@ void EE_GRID_HELPER::CollectAlignmentNeighbors( const SCH_SELECTION& aSkip )
 
         if( m_textMode )
         {
-            // Fields are not view items -- SCH_SCREEN::Append() keeps SCH_FIELD_T out of the
-            // R-tree by the same guard that keeps SCH_SHEET_PIN_T out -- so the query hands back
-            // the owning symbol or sheet and the fields have to be expanded from it.
+            // Fields are not view items on a sheet -- SCH_SCREEN::Append() keeps SCH_FIELD_T out
+            // of the R-tree by the same guard that keeps SCH_SHEET_PIN_T out -- so the query hands
+            // back the owning symbol or sheet and the fields have to be expanded from it.  The
+            // symbol editor needs none of this: SCH_VIEW::DisplaySymbol() adds the edited symbol's
+            // fields to the view individually, so the query returns them directly and neither
+            // branch below matches anything.
             std::vector<SCH_FIELD>* fields = nullptr;
 
             // Power ports are excluded here for the same reason GetAlignmentBox() excludes
@@ -840,10 +854,16 @@ void EE_GRID_HELPER::CollectAlignmentNeighbors( const SCH_SELECTION& aSkip )
             }
 
             // Text aligns to text and to bodies both, so this item contributes whichever it has:
-            // its text box if it is free text, otherwise its body box if it is a symbol or sheet.
+            // its text box if it is text, otherwise the body box its editor's rule gives it -- a
+            // symbol or sheet outline on a sheet, a pin position or a drawn shape in the symbol
+            // editor.  Which is why the second rule is picked by editor and not merged: a pin is
+            // an alignment target for the value glyph sitting under it, and is emphatically not
+            // one for a reference designator on a sheet full of them.
             if( const std::optional<BOX2I> textBox = GetTextAlignmentBox( item ) )
                 pushTarget( item, *textBox );
-            else if( const std::optional<BOX2I> bodyBox = GetAlignmentBox( item ) )
+            else if( const std::optional<BOX2I> bodyBox = symbolEditor
+                                                                  ? GetSymbolAlignmentBox( item )
+                                                                  : GetAlignmentBox( item ) )
                 pushTarget( item, *bodyBox );
 
             continue;
@@ -905,6 +925,11 @@ void EE_GRID_HELPER::CollectAlignmentNeighbors( const SCH_SELECTION& aSkip )
         // The body outline the user drew around the pins.  Pins excluded: a container is the
         // drawn area, and pins stick out of it by their length on every side, so including them
         // would centre a graphic against an edge nobody sees.  Private items likewise.
+        //
+        // Text takes it too, unlike on a sheet where a field is deliberately offered no container
+        // at all.  The reason the sheet refuses is that its container spans the whole page and so
+        // merges every neighbour into one cluster; a symbol body is small enough that it does not,
+        // and "value centred under the body" is a thing symbol authors actually want.
         if( LIB_SYMBOL* symbol = symbolEditor->GetCurSymbol() )
         {
             const BOX2I body = symbol->GetBodyBoundingBox( symbolEditor->GetUnit(),
@@ -934,10 +959,10 @@ void EE_GRID_HELPER::CollectAlignmentNeighbors( const SCH_SELECTION& aSkip )
         // No container.  A sheet pin slides along its sheet's border, so "centred in the page" is
         // a position it cannot take and a candidate it must not be offered.
         //
-        // Text reaches here only when the selection holds a field, i.e. when m_dynamicCells was
-        // deliberately refused above so the field keeps its equal-pitch badges.  The page
-        // rectangle below is not an acceptable substitute: it is the *paper*, and the drawing
-        // frame the user sees is inset from it by the sheet margins.
+        // Text reaches here only on a sheet, and only when the selection holds a field, i.e. when
+        // m_dynamicCells was deliberately refused above so the field keeps its equal-pitch badges.
+        // The page rectangle below is not an acceptable substitute: it is the *paper*, and the
+        // drawing frame the user sees is inset from it by the sheet margins.
     }
     else if( SCH_BASE_FRAME* frame = dynamic_cast<SCH_BASE_FRAME*>( m_toolMgr->GetToolHolder() ) )
     {

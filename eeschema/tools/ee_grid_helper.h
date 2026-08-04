@@ -125,7 +125,12 @@ public:
     static bool IsSheetPinSelection( const SELECTION& aSelection );
 
     /**
-     * The box alignment guides measure a *schematic text item* by, or nullopt for anything else.
+     * The box alignment guides measure a *text item* by, or nullopt for anything else.
+     *
+     * The one rule that serves both editors: a symbol's reference designator and value are the
+     * same classes in the symbol editor as on a sheet, they are dragged the same way, and wanting
+     * them level is the same want.  What they align *to* differs, and that is decided in
+     * CollectAlignmentNeighbors() by which body rule fills in behind this one.
      *
      * Fields and free text only -- SCH_FIELD_T and SCH_TEXT_T.  A text box is a drawn rectangle
      * that happens to contain text, so it belongs to the graphic rule and is measured by its
@@ -138,7 +143,10 @@ public:
      * does: renaming U1 to U10 shifts its right edge.
      *
      * Invisible fields, empty text and degenerate boxes are rejected -- a guide against something
-     * nobody can see is a lie.
+     * nobody can see is a lie.  Known cost in the symbol editor, which draws hidden fields greyed
+     * out rather than hiding them: Footprint and Datasheet are hidden by default, so they are on
+     * screen there and still get no guides.  Fixing it means teaching a static rule the frame's
+     * show-hidden setting, which is a bigger change than the case is worth.
      */
     static std::optional<BOX2I> GetTextAlignmentBox( const EDA_ITEM* aItem );
 
@@ -228,11 +236,12 @@ private:
     /// This drag is moving fields or free text only, so the text box rule applies and offsets
     /// need not be whole grid steps -- glyph extents are not grid multiples, so enforcing them
     /// would make the feature silent rather than strict.  Safe because text has no connection
-    /// points to drag off a net.
+    /// points to drag off a net.  The only mode that is also set in the symbol editor.
     bool m_textMode = false;
 
     /// The drawing-sheet cell under the moving box is offered as a container, rebuilt per motion.
-    /// Graphics always; text only when no field is selected -- see CollectAlignmentNeighbors().
+    /// Graphics always; text only on a sheet and only when no field is selected -- see
+    /// CollectAlignmentNeighbors().  Never in the symbol editor: no drawing sheet to cut up.
     bool m_dynamicCells = false;
 
     /// The symbol editor frame this helper belongs to, or nullptr in the schematic.  The two
