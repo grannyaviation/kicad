@@ -673,4 +673,3 @@ void BOARD::ExchangeFootprint( FOOTPRINT* aExisting, FOOTPRINT* aNew, BOARD_COMM
 
     aNew->ClearFlags();
 }
-

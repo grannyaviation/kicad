@@ -27,6 +27,7 @@
 
 #include <footprint_utils.h>
 
+#include <board.h>
 #include <footprint.h>
 #include <pad.h>
 
@@ -52,9 +53,9 @@ struct FP_REALIGNMENT_TEST_FIXTURE
     VECTOR2I m_PosShift;
     EDA_ANGLE m_AngleShift;
 
-    std::unique_ptr<FOOTPRINT> CreateFootprint( const std::vector<std::pair<std::string, VECTOR2I>>& padPositions )
+    std::unique_ptr<FOOTPRINT> CreateFootprint( BOARD& aBoard, const std::vector<std::pair<std::string, VECTOR2I>>& padPositions )
     {
-        std::unique_ptr<FOOTPRINT> fp = std::make_unique<FOOTPRINT>( nullptr );
+        std::unique_ptr<FOOTPRINT> fp = std::make_unique<FOOTPRINT>( &aBoard );
 
         for( const auto& [number, pos] : padPositions )
         {
@@ -68,10 +69,15 @@ struct FP_REALIGNMENT_TEST_FIXTURE
     }
 
 
-    void ExecuteTestCase( const FP_ALIGNMENT_TEST_CASE& testCase )
+    void ExecuteTestCase( const FP_ALIGNMENT_TEST_CASE& testCase, bool originalFootprintIsFlipped = false )
     {
-        const std::unique_ptr<FOOTPRINT> fpOrig = CreateFootprint( testCase.m_OrigPadPositions );
-        const std::unique_ptr<FOOTPRINT> fpNew = CreateFootprint( testCase.m_NewPadPositions );
+        std::unique_ptr<BOARD> board = std::make_unique<BOARD>();
+
+        const std::unique_ptr<FOOTPRINT> fpOrig = CreateFootprint( *board, testCase.m_OrigPadPositions );
+        const std::unique_ptr<FOOTPRINT> fpNew = CreateFootprint( *board, testCase.m_NewPadPositions );
+
+        if( originalFootprintIsFlipped )
+            fpOrig->Flip( fpOrig->GetPosition(), FLIP_DIRECTION::LEFT_RIGHT );
 
         bool ok = ComputeFootprintShift( *fpOrig, *fpNew, m_PosShift, m_AngleShift );
 
@@ -250,6 +256,22 @@ BOOST_DATA_TEST_CASE( TestAllCases,
                       testCase )
 {
     ExecuteTestCase( testCase );
+}
+
+
+// A footprint on the back stores its pads mirrored. Aligning the same library footprint to
+// itself must still give a zero shift (-0 == 0), so no compensation for the flip is needed.
+BOOST_AUTO_TEST_CASE( TestSelfToSelfFlippedOriginal )
+{
+    const FP_ALIGNMENT_TEST_CASE selfCase = {
+        "DIP4 -> DIP4, original flipped",
+        FpDef_DIP4_OrigPin1,
+        FpDef_DIP4_OrigPin1,
+        VECTOR2I( 0, 0 ),
+        ANGLE_0,
+    };
+
+    ExecuteTestCase( selfCase, true );
 }
 
 BOOST_AUTO_TEST_SUITE_END()
