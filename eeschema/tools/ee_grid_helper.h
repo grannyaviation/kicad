@@ -136,7 +136,11 @@ public:
      * Kept off the text rule deliberately: a label is connectable, so it must stay on whole grid
      * steps and keep anchor-beats-guide, and the text rule is grid-exempt.
      *
-     * Covers plain, global, hierarchical and directive labels.
+     * Covers plain, global, hierarchical and directive labels -- and power ports, which are
+     * labels wearing a symbol: they name the net they touch, they are dragged as one glyph, and
+     * they have a single pin.  A power port is measured by that pin, for the same reason.  The
+     * body rule rejects them so they never crowd a component drag as targets, and that rejection
+     * is why dragging one used to draw nothing at all.
      */
     static std::optional<BOX2I> GetLabelAlignmentBox( const EDA_ITEM* aItem );
 

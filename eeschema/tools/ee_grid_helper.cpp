@@ -480,7 +480,9 @@ std::optional<BOX2I> EE_GRID_HELPER::GetAlignmentBox( const EDA_ITEM* aItem )
         const SCH_SYMBOL* symbol = static_cast<const SCH_SYMBOL*>( aItem );
 
         // Power ports are SCH_SYMBOLs too, and a sheet usually has many more of them than
-        // components.  Aligning a chip to a GND flag is never what the user meant.
+        // components.  Aligning a chip to a GND flag is never what the user meant.  They are not
+        // left without guides by this: GetLabelAlignmentBox() measures one, by its pin, so a
+        // dragged power port aligns to pins and labels while never becoming a target here.
         if( symbol->IsPower() )
             return std::nullopt;
 
@@ -665,6 +667,28 @@ std::optional<BOX2I> EE_GRID_HELPER::GetLabelAlignmentBox( const EDA_ITEM* aItem
         // place the wire attaches -- not the glyphs, whose extent depends on the net name.
         return BOX2I( static_cast<const SCH_LABEL_BASE*>( aItem )->GetPosition(),
                       VECTOR2I( 0, 0 ) );
+
+    case SCH_SYMBOL_T:
+    {
+        const SCH_SYMBOL* symbol = static_cast<const SCH_SYMBOL*>( aItem );
+
+        // A power port is a label wearing a symbol: it names the net it touches, it is dragged
+        // as one glyph, and it has a single pin.  So it is measured here rather than by the body
+        // rule, which rejects it outright -- and that rejection is why dragging one used to
+        // produce no guides at all.  Non-power symbols keep the body rule.
+        if( !symbol->IsPower() )
+            return std::nullopt;
+
+        // Not symbol->GetPosition(): that is the symbol origin, which the library author is free
+        // to put anywhere.  The pin is the point the wire attaches to, which is the thing the
+        // user is lining up.  More than one pin means it is not the flag this rule is about.
+        const std::vector<SCH_PIN*> pins = symbol->GetPins();
+
+        if( pins.size() != 1 )
+            return std::nullopt;
+
+        return BOX2I( pins.front()->GetPosition(), VECTOR2I( 0, 0 ) );
+    }
 
     default:
         return std::nullopt;
@@ -872,12 +896,20 @@ void EE_GRID_HELPER::CollectAlignmentNeighbors( const SCH_SELECTION& aSkip )
                     if( !aSkip.Contains( pin ) )
                         pushTarget( pin, *GetSymbolAlignmentBox( pin ) );
                 }
+
+                // And the body it is labelling, for a component.  Measured in library units, so
+                // an edge of it is rarely a whole grid step from the label's anchor; the engine
+                // rounds those to the grid and marks them approximate rather than dropping them.
+                // A power port has no body box by design, and its own pin above is already the
+                // point a label lines up with -- pushing GetLabelAlignmentBox() here too would
+                // enter that identical point a second time.
+                if( const std::optional<BOX2I> bodyBox = GetAlignmentBox( item ) )
+                    pushTarget( item, *bodyBox );
+
+                continue;
             }
 
-            // A label lines up with another label, and with the body it is labelling.  The body
-            // box is measured in library units, so an edge of it is rarely a whole grid step
-            // from the label's anchor; the engine rounds those to the grid and marks them
-            // approximate rather than dropping them.
+            // Another label, or a hierarchical sheet.
             if( const std::optional<BOX2I> labelBox = GetLabelAlignmentBox( item ) )
                 pushTarget( item, *labelBox );
             else if( const std::optional<BOX2I> bodyBox = GetAlignmentBox( item ) )

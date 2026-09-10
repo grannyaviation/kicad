@@ -24,6 +24,8 @@
 #include <sch_shape.h>
 #include <sch_bitmap.h>
 #include <sch_junction.h>
+#include <sch_symbol.h>
+#include <lib_symbol.h>
 #include <sch_label.h>
 #include <sch_sheet.h>
 #include <sch_sheet_pin.h>
@@ -466,6 +468,60 @@ BOOST_AUTO_TEST_CASE( LabelAlignmentBoxIsTheConnectionPoint )
     BOOST_CHECK( !EE_GRID_HELPER::GetGraphicAlignmentBox( &label ).has_value() );
     BOOST_CHECK( !EE_GRID_HELPER::GetAlignmentBox( &label ).has_value() );
     BOOST_CHECK( !EE_GRID_HELPER::GetLabelAlignmentBox( &text ).has_value() );
+}
+
+
+// A power port is a SCH_SYMBOL, and the body rule refuses it so a component drag never chases a
+// GND flag.  That refusal used to leave a dragged power port with no box from any rule, hence no
+// move context and no guides.  It belongs to the label rule instead, measured by its one pin.
+BOOST_AUTO_TEST_CASE( PowerPortAlignsByItsPin )
+{
+    LIB_SYMBOL part( wxT( "+5V" ) );
+    part.SetGlobalPower();
+
+    // Deliberately not at the origin, or the two candidate answers below would coincide and the
+    // check would prove nothing.
+    SCH_PIN* libPin = new SCH_PIN( &part );
+    libPin->SetPosition( VECTOR2I( 0, 2540 ) );
+    part.AddDrawItem( libPin );
+
+    SCH_SYMBOL port( part, part.GetLibId(), nullptr, 1, 0, VECTOR2I( 2540, -1270 ) );
+    BOOST_REQUIRE( port.IsPower() );
+    BOOST_REQUIRE_EQUAL( port.GetPins().size(), 1 );
+
+    const std::optional<BOX2I> box = EE_GRID_HELPER::GetLabelAlignmentBox( &port );
+
+    BOOST_REQUIRE( box.has_value() );
+
+    // The pin, not the symbol origin: a library author is free to draw the flag anywhere
+    // relative to the origin, and what the user lines up is where the wire attaches.
+    BOOST_CHECK_EQUAL( box->GetOrigin(), port.GetPins().front()->GetPosition() );
+    BOOST_CHECK( box->GetOrigin() != port.GetPosition() );
+    BOOST_CHECK_EQUAL( box->GetWidth(), 0 );
+    BOOST_CHECK_EQUAL( box->GetHeight(), 0 );
+
+    // The body rule still refuses it, so a power port stays out of every component drag's
+    // target list -- which is the whole reason it was excluded there.
+    BOOST_CHECK( !EE_GRID_HELPER::GetAlignmentBox( &port ).has_value() );
+
+    // And the gesture test routes the drag to the label rule.
+    SCH_SELECTION sel;
+    sel.Add( &port );
+    BOOST_CHECK( EE_GRID_HELPER::IsLabelSelection( sel ) );
+
+    // A component is not a power port: it keeps the body rule, and a drag of one is not a label
+    // gesture even though both are SCH_SYMBOLs.
+    LIB_SYMBOL resistorPart( wxT( "R" ) );
+    SCH_PIN*   resistorPin = new SCH_PIN( &resistorPart );
+    resistorPin->SetPosition( VECTOR2I( 0, 0 ) );
+    resistorPart.AddDrawItem( resistorPin );
+
+    SCH_SYMBOL resistor( resistorPart, resistorPart.GetLibId(), nullptr, 1 );
+    BOOST_CHECK( !EE_GRID_HELPER::GetLabelAlignmentBox( &resistor ).has_value() );
+
+    SCH_SELECTION bodySel;
+    bodySel.Add( &resistor );
+    BOOST_CHECK( !EE_GRID_HELPER::IsLabelSelection( bodySel ) );
 }
 
 
