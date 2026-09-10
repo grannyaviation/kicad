@@ -345,4 +345,30 @@ BOOST_AUTO_TEST_CASE( Compare )
 }
 
 
+// A colour string that is neither a hex triplet nor a named colour is kept verbatim as an
+// unevaluated text variable.  The components still have to be set: they have no default member
+// initialiser, so leaving them alone handed every consumer that reads them without checking
+// m_text uninitialised doubles.  DIALOG_COLOR_PICKER multiplied one by the palette radius,
+// saturating a cursor coordinate to INT_MIN, and wxDC::DrawRectangle then asserted out of
+// wxRound() -- a hard trap in a debug build.
+BOOST_AUTO_TEST_CASE( TextColorHasDefinedComponents )
+{
+    const KIGFX::COLOR4D color( wxString( wxT( "${MY_COLOR}" ) ) );
+
+    // Kept verbatim, which is the whole point of the branch under test.
+    BOOST_REQUIRE( color.m_text );
+    BOOST_CHECK_EQUAL( *color.m_text, wxT( "${MY_COLOR}" ) );
+
+    // std::isfinite alone would pass on uninitialised memory that happens to be a normal double,
+    // so check the actual values: UNSPECIFIED's, which is how a text colour is drawn anyway.
+    BOOST_CHECK_EQUAL( color.r, 0.0 );
+    BOOST_CHECK_EQUAL( color.g, 0.0 );
+    BOOST_CHECK_EQUAL( color.b, 0.0 );
+    BOOST_CHECK_EQUAL( color.a, 0.0 );
+
+    // The multiplication the colour picker does, at the palette radius that crashed.
+    BOOST_CHECK_EQUAL( int( color.r * 284 ), 0 );
+}
+
+
 BOOST_AUTO_TEST_SUITE_END()

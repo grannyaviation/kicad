@@ -110,7 +110,24 @@ COLOR4D::COLOR4D( EDA_COLOR_T aColor )
 COLOR4D::COLOR4D( const wxString& aColorStr )
 {
     if( !SetFromHexString( aColorStr ) && !SetFromWxString( aColorStr ) )
+    {
+        // Neither a hex triplet nor a named colour, so the string is kept verbatim to be resolved
+        // later -- an unevaluated text variable, typically.  The components have to be set even
+        // so: r, g, b and a have no default member initialiser, and every consumer that reads them
+        // without first testing m_text was getting uninitialised doubles.  DIALOG_COLOR_PICKER is
+        // one: it multiplies r by the palette radius, which saturates the cursor coordinate to
+        // INT_MIN and then asserts out of wxRound() inside wxDC::DrawRectangle -- a hard trap in a
+        // debug build.
+        //
+        // UNSPECIFIED's components, because that is already how a text colour is drawn wherever it
+        // is drawn at all; see COLOR_SWATCH::RenderToDC().
+        r = 0.0;
+        g = 0.0;
+        b = 0.0;
+        a = 0.0;
+
         m_text = std::make_shared<wxString>( aColorStr );
+    }
 }
 
 
