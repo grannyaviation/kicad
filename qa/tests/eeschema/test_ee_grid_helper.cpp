@@ -24,6 +24,7 @@
 #include <sch_shape.h>
 #include <sch_bitmap.h>
 #include <sch_junction.h>
+#include <sch_label.h>
 #include <sch_sheet.h>
 #include <sch_sheet_pin.h>
 #include <sch_pin.h>
@@ -427,6 +428,67 @@ BOOST_AUTO_TEST_CASE( SheetPinSelectionSurvivesDragAdditions )
     // and it has to keep the body rule or the bodies would chase pin points.
     sel.Add( &sheet );
     BOOST_CHECK( !EE_GRID_HELPER::IsSheetPinSelection( sel ) );
+}
+
+
+// A net label had no rule at all, so dragging one produced an invalid moving box, no move
+// context and no guides.  It gets the connection point, not the drawn chevron: a global label's
+// outline widens with the net name, so two labels on one column would not line up by their boxes.
+BOOST_AUTO_TEST_CASE( LabelAlignmentBoxIsTheConnectionPoint )
+{
+    SCH_LABEL       label( VECTOR2I( 2540, -1270 ), wxT( "+5V" ) );
+    SCH_GLOBALLABEL global( VECTOR2I( 5080, 0 ), wxT( "+5V" ) );
+    SCH_HIERLABEL   hier( VECTOR2I( 0, 2540 ), wxT( "MISO" ) );
+
+    for( const SCH_LABEL_BASE* item : { static_cast<const SCH_LABEL_BASE*>( &label ),
+                                        static_cast<const SCH_LABEL_BASE*>( &global ),
+                                        static_cast<const SCH_LABEL_BASE*>( &hier ) } )
+    {
+        const std::optional<BOX2I> box = EE_GRID_HELPER::GetLabelAlignmentBox( item );
+
+        BOOST_REQUIRE( box.has_value() );
+
+        // The point ERC and the connectivity engine both read, so a label aligned by it stays a
+        // whole number of grid steps from every pin it could attach to.
+        BOOST_REQUIRE_EQUAL( item->GetConnectionPoints().size(), 1 );
+        BOOST_CHECK_EQUAL( box->GetOrigin(), item->GetConnectionPoints().front() );
+        BOOST_CHECK_EQUAL( box->GetWidth(), 0 );
+        BOOST_CHECK_EQUAL( box->GetHeight(), 0 );
+    }
+
+    // Exclusive, like the other rules: a label drag must not acquire graphic or text targets,
+    // and no other gesture may measure a label by this rule.  The text rule in particular --
+    // a label derives from SCH_TEXT, and picking it up there would make it grid-exempt.
+    SCH_TEXT text;
+    text.SetText( wxT( "Notes" ) );
+
+    BOOST_CHECK( !EE_GRID_HELPER::GetTextAlignmentBox( &label ).has_value() );
+    BOOST_CHECK( !EE_GRID_HELPER::GetGraphicAlignmentBox( &label ).has_value() );
+    BOOST_CHECK( !EE_GRID_HELPER::GetAlignmentBox( &label ).has_value() );
+    BOOST_CHECK( !EE_GRID_HELPER::GetLabelAlignmentBox( &text ).has_value() );
+}
+
+
+// Same shape as the sheet-pin test, and for the same reason: dragging a label hauls the wire it
+// sits on into the selection, so an all-of test would call it something other than a label move.
+BOOST_AUTO_TEST_CASE( LabelSelectionSurvivesDragAdditions )
+{
+    SCH_LABEL     label( VECTOR2I( 0, 0 ), wxT( "+5V" ) );
+    SCH_LINE      wire( VECTOR2I( 0, 0 ), LAYER_WIRE );
+    SCH_SHEET     sheet;
+    SCH_SELECTION sel;
+
+    BOOST_CHECK( !EE_GRID_HELPER::IsLabelSelection( sel ) );
+
+    sel.Add( &label );
+    BOOST_CHECK( EE_GRID_HELPER::IsLabelSelection( sel ) );
+
+    sel.Add( &wire );
+    BOOST_CHECK( EE_GRID_HELPER::IsLabelSelection( sel ) );
+
+    // A body is a sheet/symbol move carrying a label along, and has to keep the body rule.
+    sel.Add( &sheet );
+    BOOST_CHECK( !EE_GRID_HELPER::IsLabelSelection( sel ) );
 }
 
 

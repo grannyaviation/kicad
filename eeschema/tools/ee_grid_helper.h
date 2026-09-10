@@ -125,6 +125,34 @@ public:
     static bool IsSheetPinSelection( const SELECTION& aSelection );
 
     /**
+     * The box alignment guides measure a *net label* by, or nullopt for anything else.
+     *
+     * The connection point, as a zero-size box, for the reason a pin gets one: what the user
+     * lines up is where the wire attaches, and zero size collapses min, max and centre onto it,
+     * so a column of labels yields equal-pitch badges out of the same machinery.  The drawn box
+     * would be the wrong thing anyway -- a global label's outline is a chevron whose width
+     * tracks the net name, so two labels on the same net-name column would not line up.
+     *
+     * Kept off the text rule deliberately: a label is connectable, so it must stay on whole grid
+     * steps and keep anchor-beats-guide, and the text rule is grid-exempt.
+     *
+     * Covers plain, global, hierarchical and directive labels.
+     */
+    static std::optional<BOX2I> GetLabelAlignmentBox( const EDA_ITEM* aItem );
+
+    /**
+     * True when aSelection is the gesture "move one or more net labels".
+     *
+     * Any-of with a body veto, like IsSheetPinSelection() and for the same reason: dragging a
+     * label hauls its connected wires into the selection, and those are rubber bands rather than
+     * part of what the user grabbed.
+     *
+     * Shared by SCH_MOVE_TOOL and the neighbour sweep: the moving box and the targets must be
+     * chosen by the same rule or the guides measure two different things.
+     */
+    static bool IsLabelSelection( const SELECTION& aSelection );
+
+    /**
      * The box alignment guides measure a *text item* by, or nullopt for anything else.
      *
      * The one rule that serves both editors: a symbol's reference designator and value are the

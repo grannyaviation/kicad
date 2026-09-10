@@ -30,6 +30,7 @@
 #include <sch_field.h>
 #include <sch_group.h>
 #include <sch_item.h>
+#include <sch_label.h>
 #include <sch_line.h>
 #include <sch_pin.h>
 #include <sch_shape.h>
@@ -652,6 +653,41 @@ bool EE_GRID_HELPER::IsSheetPinSelection( const SELECTION& aSelection )
 }
 
 
+std::optional<BOX2I> EE_GRID_HELPER::GetLabelAlignmentBox( const EDA_ITEM* aItem )
+{
+    switch( aItem->Type() )
+    {
+    case SCH_LABEL_T:
+    case SCH_GLOBAL_LABEL_T:
+    case SCH_HIER_LABEL_T:
+    case SCH_DIRECTIVE_LABEL_T:
+        // SCH_LABEL_BASE::GetConnectionPoints() returns exactly this point, so the box is the
+        // place the wire attaches -- not the glyphs, whose extent depends on the net name.
+        return BOX2I( static_cast<const SCH_LABEL_BASE*>( aItem )->GetPosition(),
+                      VECTOR2I( 0, 0 ) );
+
+    default:
+        return std::nullopt;
+    }
+}
+
+
+bool EE_GRID_HELPER::IsLabelSelection( const SELECTION& aSelection )
+{
+    bool anyLabel = false;
+
+    for( const EDA_ITEM* item : aSelection )
+    {
+        if( GetLabelAlignmentBox( item ) )
+            anyLabel = true;
+        else if( GetAlignmentBox( item ) )  // a sheet or symbol body: not a label gesture
+            return false;
+    }
+
+    return anyLabel;
+}
+
+
 std::optional<BOX2I> EE_GRID_HELPER::GetTextAlignmentBox( const EDA_ITEM* aItem )
 {
     const EDA_TEXT* text = nullptr;
@@ -754,6 +790,10 @@ void EE_GRID_HELPER::CollectAlignmentNeighbors( const SCH_SELECTION& aSkip )
     // above already fails whenever one is in the selection.
     const bool sheetPinMode = !symbolEditor && IsSheetPinSelection( aSkip );
 
+    // Disjoint again: a label has no graphic box and no sheet-pin box.  Never in the symbol
+    // editor, which has no labels to drag.
+    const bool labelMode = !symbolEditor && IsLabelSelection( aSkip );
+
     // Also disjoint: neither a field nor free text has a graphic box or a sheet-pin box, so both
     // tests above already fail whenever one is in the selection.
     //
@@ -817,6 +857,35 @@ void EE_GRID_HELPER::CollectAlignmentNeighbors( const SCH_SELECTION& aSkip )
             continue;
         }
 
+        if( labelMode )
+        {
+            // Pins are not view items either -- they are children of their symbol and never
+            // reach SCH_SCREEN::Append() -- so they have to be expanded from it, as fields are
+            // below.  A pin is the target that matters here: the label names the net the pin
+            // sits on, and both are connectable, so the two are always a whole number of grid
+            // steps apart and the alignment is exactly reachable.  Power ports are left in,
+            // unlike everywhere else: their one pin is what a label lines up with.
+            if( item->Type() == SCH_SYMBOL_T )
+            {
+                for( SCH_PIN* pin : static_cast<SCH_SYMBOL*>( item )->GetPins() )
+                {
+                    if( !aSkip.Contains( pin ) )
+                        pushTarget( pin, *GetSymbolAlignmentBox( pin ) );
+                }
+            }
+
+            // A label lines up with another label, and with the body it is labelling.  The body
+            // box is measured in library units, so an edge of it is rarely a whole grid step
+            // from the label's anchor; the engine rounds those to the grid and marks them
+            // approximate rather than dropping them.
+            if( const std::optional<BOX2I> labelBox = GetLabelAlignmentBox( item ) )
+                pushTarget( item, *labelBox );
+            else if( const std::optional<BOX2I> bodyBox = GetAlignmentBox( item ) )
+                pushTarget( item, *bodyBox );
+
+            continue;
+        }
+
         if( m_textMode )
         {
             // Fields are not view items on a sheet -- SCH_SCREEN::Append() keeps SCH_FIELD_T out
@@ -865,6 +934,15 @@ void EE_GRID_HELPER::CollectAlignmentNeighbors( const SCH_SELECTION& aSkip )
                                                                   ? GetSymbolAlignmentBox( item )
                                                                   : GetAlignmentBox( item ) )
                 pushTarget( item, *bodyBox );
+            // A drawn rectangle, a text box, a logo or a separator line, on a sheet only -- the
+            // symbol editor's rule above already measures its shapes.  Text is grid-exempt, so
+            // a neighbour's centre-to-centre candidate is reachable exactly, which is what
+            // "centre this note in that box" is: the rectangle is a neighbour, not a container,
+            // for the reason updateDynamicContainers() gives.
+            else if( const std::optional<BOX2I> graphicBox = symbolEditor
+                                                                     ? std::nullopt
+                                                                     : GetGraphicAlignmentBox( item ) )
+                pushTarget( item, *graphicBox );
 
             continue;
         }
@@ -954,10 +1032,11 @@ void EE_GRID_HELPER::CollectAlignmentNeighbors( const SCH_SELECTION& aSkip )
         // edge that is never drawn.
         collectDrawingSheetSegments();
     }
-    else if( sheetPinMode || m_textMode )
+    else if( sheetPinMode || m_textMode || labelMode )
     {
         // No container.  A sheet pin slides along its sheet's border, so "centred in the page" is
-        // a position it cannot take and a candidate it must not be offered.
+        // a position it cannot take and a candidate it must not be offered.  A label centred on
+        // the page is the same kind of nonsense.
         //
         // Text reaches here only on a sheet, and only when the selection holds a field, i.e. when
         // m_dynamicCells was deliberately refused above so the field keeps its equal-pitch badges.

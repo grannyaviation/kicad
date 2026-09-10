@@ -852,12 +852,18 @@ bool SCH_MOVE_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, SCH_COMMIT* aComm
                 // there is nothing to tolerate.
                 const bool textOnly = EE_GRID_HELPER::IsTextSelection( selection );
 
+                // A net label is measured by its connection point and aligned to pins and other
+                // labels.  None of the three rules above accepts one, so without this a label
+                // drag produced an invalid box, lost its move context, and got no guides at all.
+                const bool labelsOnly = EE_GRID_HELPER::IsLabelSelection( selection );
+
                 BOX2I guideBBox;
 
                 for( EDA_ITEM* item : selection )
                 {
                     const std::optional<BOX2I> box =
                             sheetPinsOnly ? EE_GRID_HELPER::GetSheetPinAlignmentBox( item )
+                            : labelsOnly  ? EE_GRID_HELPER::GetLabelAlignmentBox( item )
                             : textOnly    ? EE_GRID_HELPER::GetTextAlignmentBox( item )
                             : graphicsOnly ? EE_GRID_HELPER::GetGraphicAlignmentBox( item )
                                            : EE_GRID_HELPER::GetAlignmentBox( item );
