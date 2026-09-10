@@ -357,8 +357,13 @@ int EE_GRAPHIC_TOOL::DrawShape( const TOOL_EVENT& aEvent )
 
                 m_selectionTool->AddItemToSel( item.get() );
 
+                // Read the class before the move, not in the same argument list: the order in
+                // which arguments are evaluated is unspecified, and gcc builds the moved-to
+                // unique_ptr first, leaving item null for a virtual call on nothing.
+                wxString description = wxString::Format( _( "Draw %s" ), item->GetClass() );
+
                 SCH_COMMIT commit( m_toolMgr );
-                commitItem( commit, std::move( item ), wxString::Format( _( "Draw %s" ), item->GetClass() ) );
+                commitItem( commit, std::move( item ), description );
 
                 item = nullptr;
 
