@@ -587,11 +587,7 @@ public:
     void OnFootprintRescaled( double aRatioX, double aRatioY, double aLinearFactor, const VECTOR2I& aAnchor,
                               const EDA_ANGLE& aParentRotate ) override;
 
-    void OnFootprintTransformed() override
-    {
-        SetNeedRefill( true );
-        UnFill();
-    }
+    void OnFootprintTransformed() override;
 
     /**
      * Mirror the outlines relative to a given horizontal axis the layer is not changed.
@@ -1039,6 +1035,8 @@ protected:
 
     /// Compute the bbox from scratch.  Shared so the cached value can't diverge from the live one.
     BOX2I computeBoundingBox() const;
+
+    void invalidateBoundingBoxCache() const;
 
     /// Lock-free bbox cache, valid while m_bboxCacheTimeStamp matches the board timestamp.
     mutable BOX2I             m_bboxCache;
