@@ -674,6 +674,16 @@ void PCB_GRID_HELPER::CollectAlignmentNeighbors( const std::vector<BOARD_ITEM*>&
 }
 
 
+std::optional<VECTOR2I> PCB_GRID_HELPER::AlignmentGuideStep( bool aGridInUse,
+                                                            const VECTOR2D& aGridSize )
+{
+    if( !aGridInUse )
+        return std::nullopt;
+
+    return KiROUND( aGridSize );
+}
+
+
 VECTOR2I PCB_GRID_HELPER::BestSnapAnchor( const VECTOR2I& aOrigin, const LSET& aLayers,
                                           GRID_HELPER_GRIDS               aGrid,
                                           const std::vector<BOARD_ITEM*>& aSkip )
@@ -1016,10 +1026,16 @@ VECTOR2I PCB_GRID_HELPER::BestSnapAnchor( const VECTOR2I& aOrigin, const LSET& a
     // priority is anchor > guide > grid.  The query runs after the teardown above so a guide
     // snap doesn't leave a stale snap marker or snap line.
     //
-    // aOrigin, i.e. the raw cursor: the moving bbox is extrapolated from the same reference
-    // the move tool captured OriginalCursor at.  No grid step either -- PCB items have no
-    // grid obligation, and the snap radius here is zoom-dependent rather than grid-derived.
-    if( std::optional<GUIDE_SNAP> alignSnap = computeAlignmentGuideSnap( aOrigin, snapRange ) )
+    // With the grid in use the guide starts from the grid-snapped point and may only move by
+    // whole grid steps, as in the schematic editor, so an aligned item stays on the grid; a
+    // candidate no grid position satisfies is rejected and the grid snap below applies.  With
+    // the grid off (or grid snapping overridden) it starts from the raw cursor and is free.
+    // Either way the moving bbox is extrapolated from the same reference the move tool captured
+    // OriginalCursor at, and the snap radius stays zoom-dependent rather than grid-derived.
+    const std::optional<VECTOR2I> guideStep = AlignmentGuideStep( canUseGrid(), gridSize );
+
+    if( std::optional<GUIDE_SNAP> alignSnap =
+                computeAlignmentGuideSnap( guideStep ? nearestGrid : aOrigin, snapRange, guideStep ) )
     {
         showAlignmentGuides( *alignSnap );
         return alignSnap->Position;

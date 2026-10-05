@@ -95,6 +95,16 @@ public:
      */
     void CollectAlignmentNeighbors( const std::vector<BOARD_ITEM*>& aSkip );
 
+    /**
+     * The step a smart alignment guide must keep to, as the schematic editor's guides do: with
+     * the grid in use a guide may only move an item by whole grid steps from the grid-snapped
+     * position, so it never lifts the item off the grid.
+     *
+     * @return the grid size rounded to whole units, or std::nullopt when the grid is not in use
+     *         (no grid, or grid snapping overridden), which leaves the guide free.
+     */
+    static std::optional<VECTOR2I> AlignmentGuideStep( bool aGridInUse, const VECTOR2D& aGridSize );
+
     GRID_HELPER_GRIDS GetItemGrid( const EDA_ITEM* aItem ) const override;
 
     VECTOR2D GetGridSize( GRID_HELPER_GRIDS aGrid ) const override;

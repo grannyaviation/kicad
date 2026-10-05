@@ -480,4 +480,25 @@ BOOST_AUTO_TEST_CASE( ArcDragOriginStaysOnGrid )
 }
 
 
+// With the grid in use a smart alignment guide may only move a PCB item by whole grid steps, the
+// way the schematic editor's guides do; with it off (no grid, or snapping overridden) the guide
+// is free.  Before this, PCB guides ignored the grid and left aligned footprints off it.
+BOOST_AUTO_TEST_CASE( AlignmentGuideStepFollowsGridUse )
+{
+    const std::optional<VECTOR2I> onGrid =
+            PCB_GRID_HELPER::AlignmentGuideStep( true, VECTOR2D( 100000, 250000 ) );
+
+    BOOST_REQUIRE( onGrid.has_value() );
+    BOOST_CHECK_EQUAL( *onGrid, VECTOR2I( 100000, 250000 ) );
+
+    // Grid sizes are doubles; the engine takes an integer step, rounded to nearest.
+    const std::optional<VECTOR2I> rounded =
+            PCB_GRID_HELPER::AlignmentGuideStep( true, VECTOR2D( 127000.4, 127000.6 ) );
+
+    BOOST_REQUIRE( rounded.has_value() );
+    BOOST_CHECK_EQUAL( *rounded, VECTOR2I( 127000, 127001 ) );
+
+    BOOST_CHECK( !PCB_GRID_HELPER::AlignmentGuideStep( false, VECTOR2D( 100000, 100000 ) ) );
+}
+
 BOOST_AUTO_TEST_SUITE_END()
