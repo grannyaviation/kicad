@@ -105,6 +105,25 @@ public:
      */
     static std::optional<VECTOR2I> AlignmentGuideStep( bool aGridInUse, const VECTOR2D& aGridSize );
 
+    /**
+     * Pin-line guide targets: pad centres of aFootprints on aDragSide (any side when it is
+     * UNDEFINED_LAYER) plus plated through-hole pads on the other side, never NPTH holes or
+     * unnumbered (paste-only) pads.  The aCap nearest to aRef are kept, nearest first.
+     */
+    static std::vector<VECTOR2I> CollectPinTargets( const std::vector<const FOOTPRINT*>& aFootprints,
+                                                    PCB_LAYER_ID aDragSide, const VECTOR2I& aRef,
+                                                    size_t aCap );
+
+    /// The dragged footprints' pad centres (same filter) relative to aMovingBox's origin.
+    static std::vector<VECTOR2I> MovingPadPoints( const std::vector<const FOOTPRINT*>& aMoved,
+                                                  const BOX2I& aMovingBox );
+
+    /**
+     * Hand the dragged pads to the guide engine.  Call after SetMoveContext() and, at drag start,
+     * after CollectAlignmentNeighbors() (which clears the engine).
+     */
+    void SetMovingPads( const std::vector<const FOOTPRINT*>& aMoved, const BOX2I& aMovingBox );
+
     GRID_HELPER_GRIDS GetItemGrid( const EDA_ITEM* aItem ) const override;
 
     VECTOR2D GetGridSize( GRID_HELPER_GRIDS aGrid ) const override;

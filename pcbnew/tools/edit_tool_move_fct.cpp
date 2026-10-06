@@ -1225,6 +1225,19 @@ bool EDIT_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, BOARD_COMMIT* aCommit
                         grid.CollectAlignmentNeighbors( sel_items );
                         collectGuideNeighbors = false;
                     }
+
+                    // The dragged pads ride on guideBBox, so they are re-measured with it (a
+                    // rotation or flip mid-move), not only at drag start.  After the neighbour
+                    // sweep, which clears the engine.
+                    std::vector<const FOOTPRINT*> movedFootprints;
+
+                    for( EDA_ITEM* item : moved_items )
+                    {
+                        if( item->Type() == PCB_FOOTPRINT_T )
+                            movedFootprints.push_back( static_cast<const FOOTPRINT*>( item ) );
+                    }
+
+                    grid.SetMovingPads( movedFootprints, guideBBox );
                 }
 
                 // Constrain selection bounding box to coordinates limits

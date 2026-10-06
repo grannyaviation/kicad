@@ -18,6 +18,10 @@
 #define BOOST_TEST_NO_MAIN
 #include <boost/test/unit_test.hpp>
 
+#include <algorithm>
+#include <memory>
+#include <tuple>
+
 #include <tools/pcb_grid_helper.h>
 #include <geometry/seg.h>
 #include <geometry/shape_arc.h>
@@ -500,5 +504,90 @@ BOOST_AUTO_TEST_CASE( AlignmentGuideStepFollowsGridUse )
 
     BOOST_CHECK( !PCB_GRID_HELPER::AlignmentGuideStep( false, VECTOR2D( 100000, 100000 ) ) );
 }
+
+namespace
+{
+// A footprint on aSide carrying one pad per entry: { number, attribute, position }.
+std::unique_ptr<FOOTPRINT> makePinFootprint( PCB_LAYER_ID aSide,
+        const std::vector<std::tuple<wxString, PAD_ATTRIB, VECTOR2I>>& aPads )
+{
+    auto fp = std::make_unique<FOOTPRINT>( nullptr );
+    fp->SetLayer( aSide );
+
+    for( const auto& [number, attrib, pos] : aPads )
+    {
+        PAD* pad = new PAD( fp.get() );
+        pad->SetAttribute( attrib );
+        pad->SetNumber( number );
+
+        if( attrib == PAD_ATTRIB::SMD )
+        {
+            LSET layers = PAD::SMDMask();
+
+            if( aSide != F_Cu )
+                layers.FlipStandardLayers();
+
+            pad->SetLayerSet( layers );
+        }
+        else
+        {
+            pad->SetLayerSet( PAD::PTHMask() );
+        }
+
+        pad->SetPosition( pos );
+        fp->Add( pad, ADD_MODE::APPEND ); // INSERT would reverse the pad order
+    }
+
+    return fp;
+}
+} // namespace
+
+
+BOOST_AUTO_TEST_CASE( PinTargetsKeepSameSideAndOppositeThroughHole )
+{
+    auto sameSide = makePinFootprint( B_Cu, { { "1", PAD_ATTRIB::SMD, VECTOR2I( 100, 0 ) },
+                                              { "", PAD_ATTRIB::SMD, VECTOR2I( 110, 0 ) },     // paste-only aperture
+                                              { "2", PAD_ATTRIB::NPTH, VECTOR2I( 120, 0 ) } } );
+    auto otherSide = makePinFootprint( F_Cu, { { "1", PAD_ATTRIB::SMD, VECTOR2I( 200, 0 ) },
+                                               { "2", PAD_ATTRIB::PTH, VECTOR2I( 210, 0 ) } } );
+
+    const std::vector<VECTOR2I> got = PCB_GRID_HELPER::CollectPinTargets(
+            { sameSide.get(), otherSide.get() }, B_Cu, VECTOR2I( 0, 0 ), 400 );
+
+    BOOST_CHECK_EQUAL( got.size(), 2 );
+    BOOST_CHECK( std::find( got.begin(), got.end(), VECTOR2I( 100, 0 ) ) != got.end() );
+    BOOST_CHECK( std::find( got.begin(), got.end(), VECTOR2I( 210, 0 ) ) != got.end() );
+}
+
+
+BOOST_AUTO_TEST_CASE( PinTargetsKeepTheNearestCap )
+{
+    auto fp = makePinFootprint( F_Cu, { { "1", PAD_ATTRIB::SMD, VECTOR2I( 300, 0 ) },
+                                        { "2", PAD_ATTRIB::SMD, VECTOR2I( 100, 0 ) },
+                                        { "3", PAD_ATTRIB::SMD, VECTOR2I( 200, 0 ) } } );
+
+    const std::vector<VECTOR2I> got =
+            PCB_GRID_HELPER::CollectPinTargets( { fp.get() }, F_Cu, VECTOR2I( 0, 0 ), 2 );
+
+    BOOST_REQUIRE_EQUAL( got.size(), 2 );
+    BOOST_CHECK_EQUAL( got[0], VECTOR2I( 100, 0 ) );
+    BOOST_CHECK_EQUAL( got[1], VECTOR2I( 200, 0 ) );
+}
+
+
+BOOST_AUTO_TEST_CASE( MovingPadPointsAreBoxRelative )
+{
+    auto fp = makePinFootprint( F_Cu, { { "1", PAD_ATTRIB::SMD, VECTOR2I( 1005, 2010 ) },
+                                        { "2", PAD_ATTRIB::SMD, VECTOR2I( 1035, 2010 ) },
+                                        { "", PAD_ATTRIB::SMD, VECTOR2I( 1020, 2010 ) } } );
+
+    const BOX2I box( VECTOR2I( 1000, 2000 ), VECTOR2I( 40, 20 ) );
+    const std::vector<VECTOR2I> got = PCB_GRID_HELPER::MovingPadPoints( { fp.get() }, box );
+
+    BOOST_REQUIRE_EQUAL( got.size(), 2 );
+    BOOST_CHECK_EQUAL( got[0], VECTOR2I( 5, 10 ) );
+    BOOST_CHECK_EQUAL( got[1], VECTOR2I( 35, 10 ) );
+}
+
 
 BOOST_AUTO_TEST_SUITE_END()

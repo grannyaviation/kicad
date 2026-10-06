@@ -61,6 +61,12 @@
 namespace
 {
 
+/// A pad a pin-line guide may use: not a mechanical hole, not a paste-only aperture.
+bool isPinPad( const PAD* aPad )
+{
+    return aPad->GetAttribute() != PAD_ATTRIB::NPTH && !aPad->GetNumber().IsEmpty();
+}
+
 /**
  * Get the INTERSECTABLE_GEOM for a BOARD_ITEM if it's supported.
  *
@@ -618,7 +624,8 @@ void PCB_GRID_HELPER::CollectAlignmentNeighbors( const std::vector<BOARD_ITEM*>&
         }
     }
 
-    std::vector<BOX2I> boxes;
+    std::vector<BOX2I>               boxes;
+    std::vector<const FOOTPRINT*>    pinSources;
     const VECTOR2D     ref( m_moveContext->OriginalBBox.Centre() );
 
     for( BOARD_ITEM* item : queryVisible( viewport, aSkip ) )
@@ -627,6 +634,8 @@ void PCB_GRID_HELPER::CollectAlignmentNeighbors( const std::vector<BOARD_ITEM*>&
             continue;
 
         FOOTPRINT* fp = static_cast<FOOTPRINT*>( item );
+
+        pinSources.push_back( fp );
 
         if( dragSide != UNDEFINED_LAYER && fp->GetSide() != dragSide )
             continue;
@@ -661,6 +670,13 @@ void PCB_GRID_HELPER::CollectAlignmentNeighbors( const std::vector<BOARD_ITEM*>&
 
     engine.SetNeighbors( std::move( boxes ) );
 
+    // Pin-line guides: pad centres of the same footprints plus through-hole pads from the other
+    // side.  Nearest first and capped for the same reason as the neighbours above.
+    constexpr size_t MAX_PIN_TARGETS = 400;
+
+    engine.SetPinTargets( CollectPinTargets( pinSources, dragSide, m_moveContext->OriginalBBox.Centre(),
+                                             MAX_PIN_TARGETS ) );
+
     // Containers: the board outline (v1; enclosing-item bboxes are a follow-up).
     // A board with no Edge.Cuts yields an uninitialised box, which the engine would
     // otherwise take at face value as a container at the origin.
@@ -681,6 +697,69 @@ std::optional<VECTOR2I> PCB_GRID_HELPER::AlignmentGuideStep( bool aGridInUse,
         return std::nullopt;
 
     return KiROUND( aGridSize );
+}
+
+
+std::vector<VECTOR2I> PCB_GRID_HELPER::CollectPinTargets( const std::vector<const FOOTPRINT*>& aFootprints,
+                                                          PCB_LAYER_ID aDragSide, const VECTOR2I& aRef,
+                                                          size_t aCap )
+{
+    std::vector<VECTOR2I> points;
+
+    for( const FOOTPRINT* fp : aFootprints )
+    {
+        const bool sameSide = aDragSide == UNDEFINED_LAYER || fp->GetSide() == aDragSide;
+
+        for( const PAD* pad : fp->Pads() )
+        {
+            if( !isPinPad( pad ) )
+                continue;
+
+            if( !sameSide && pad->GetAttribute() != PAD_ATTRIB::PTH )
+                continue;
+
+            points.push_back( pad->GetPosition() );
+        }
+    }
+
+    // Nearest first, ties broken by position so the order is total and stable across runs.
+    auto key = [&]( const VECTOR2I& p )
+    {
+        return std::make_tuple( ( VECTOR2L( p ) - VECTOR2L( aRef ) ).SquaredEuclideanNorm(), p.x, p.y );
+    };
+
+    const size_t keep = std::min( points.size(), aCap );
+
+    std::partial_sort( points.begin(), points.begin() + keep, points.end(),
+                       [&]( const VECTOR2I& a, const VECTOR2I& b ) { return key( a ) < key( b ); } );
+    points.resize( keep );
+
+    return points;
+}
+
+
+std::vector<VECTOR2I> PCB_GRID_HELPER::MovingPadPoints( const std::vector<const FOOTPRINT*>& aMoved,
+                                                        const BOX2I& aMovingBox )
+{
+    std::vector<VECTOR2I> points;
+
+    for( const FOOTPRINT* fp : aMoved )
+    {
+        for( const PAD* pad : fp->Pads() )
+        {
+            if( isPinPad( pad ) )
+                points.push_back( pad->GetPosition() - aMovingBox.GetOrigin() );
+        }
+    }
+
+    return points;
+}
+
+
+void PCB_GRID_HELPER::SetMovingPads( const std::vector<const FOOTPRINT*>& aMoved,
+                                     const BOX2I& aMovingBox )
+{
+    getSnapManager().GetAlignmentEngine().SetMovingPoints( MovingPadPoints( aMoved, aMovingBox ) );
 }
 
 
