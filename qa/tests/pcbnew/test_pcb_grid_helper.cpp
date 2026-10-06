@@ -590,4 +590,21 @@ BOOST_AUTO_TEST_CASE( MovingPadPointsAreBoxRelative )
 }
 
 
+BOOST_AUTO_TEST_CASE( MovingPadPointsIgnoreFootprintOrder )
+{
+    auto a = makePinFootprint( F_Cu, { { "1", PAD_ATTRIB::SMD, VECTOR2I( 1030, 2010 ) } } );
+    auto b = makePinFootprint( F_Cu, { { "1", PAD_ATTRIB::SMD, VECTOR2I( 1005, 2010 ) } } );
+
+    const BOX2I box( VECTOR2I( 1000, 2000 ), VECTOR2I( 40, 20 ) );
+
+    const std::vector<VECTOR2I> ab = PCB_GRID_HELPER::MovingPadPoints( { a.get(), b.get() }, box );
+    const std::vector<VECTOR2I> ba = PCB_GRID_HELPER::MovingPadPoints( { b.get(), a.get() }, box );
+
+    BOOST_REQUIRE_EQUAL( ab.size(), 2 );
+    BOOST_CHECK( ab == ba );
+    BOOST_CHECK_EQUAL( ab[0], VECTOR2I( 5, 10 ) );
+    BOOST_CHECK_EQUAL( ab[1], VECTOR2I( 30, 10 ) );
+}
+
+
 BOOST_AUTO_TEST_SUITE_END()

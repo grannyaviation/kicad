@@ -752,6 +752,12 @@ std::vector<VECTOR2I> PCB_GRID_HELPER::MovingPadPoints( const std::vector<const 
         }
     }
 
+    // The caller's footprint order comes from an unordered set; sort so a tie in the guide engine
+    // (first source wins) resolves the same way on every drag.
+    std::sort( points.begin(), points.end(),
+               []( const VECTOR2I& a, const VECTOR2I& b )
+               { return std::tie( a.x, a.y ) < std::tie( b.x, b.y ); } );
+
     return points;
 }
 

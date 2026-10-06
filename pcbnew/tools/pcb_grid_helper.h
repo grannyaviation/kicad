@@ -114,7 +114,7 @@ public:
                                                     PCB_LAYER_ID aDragSide, const VECTOR2I& aRef,
                                                     size_t aCap );
 
-    /// The dragged footprints' pad centres (same filter) relative to aMovingBox's origin.
+    /// The dragged footprints' pad centres (same filter) relative to aMovingBox's origin, sorted by x then y.
     static std::vector<VECTOR2I> MovingPadPoints( const std::vector<const FOOTPRINT*>& aMoved,
                                                   const BOX2I& aMovingBox );
 
