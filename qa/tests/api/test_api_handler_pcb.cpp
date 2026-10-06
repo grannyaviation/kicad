@@ -35,6 +35,8 @@
 
 #include <board.h>
 #include <connectivity/connectivity_data.h>
+#include <footprint.h>
+#include <pcb_track.h>
 #include <settings/settings_manager.h>
 #include <zone.h>
 
@@ -82,6 +84,34 @@ struct API_HANDLER_PCB_FIXTURE
         BOOST_REQUIRE( request.mutable_message()->PackFrom( command ) );
 
         return request;
+    }
+
+    kiapi::common::ApiRequest makeFlipRequest( BOARD* aBoard, const std::vector<KIID>& aIds ) const
+    {
+        kiapi::board::commands::FlipItems command;
+        command.mutable_board()->set_type( kiapi::common::types::DocumentType::DOCTYPE_PCB );
+        command.mutable_board()->set_board_filename(
+                wxFileName( aBoard->GetFileName() ).GetFullName().ToStdString() );
+
+        for( const KIID& id : aIds )
+            command.add_items()->set_value( id.AsStdString() );
+
+        kiapi::common::ApiRequest request;
+        request.mutable_header()->set_client_name( "kicad.qa" );
+        BOOST_REQUIRE( request.mutable_message()->PackFrom( command ) );
+
+        return request;
+    }
+
+    FOOTPRINT* frontFootprint( BOARD* aBoard ) const
+    {
+        for( FOOTPRINT* footprint : aBoard->Footprints() )
+        {
+            if( footprint->GetLayer() == F_Cu )
+                return footprint;
+        }
+
+        return nullptr;
     }
 
     ZONE* zoneByUuid( BOARD* aBoard, const wxString& aUuid ) const
@@ -214,6 +244,81 @@ BOOST_AUTO_TEST_CASE( RefillZonesUnknownIdRejected )
 
     BOOST_REQUIRE( !result.has_value() );
     BOOST_CHECK_EQUAL( result.error().status(), kiapi::common::ApiStatusCode::AS_BAD_REQUEST );
+}
+
+
+BOOST_AUTO_TEST_CASE( FlipItemsFlipsFootprintInPlace )
+{
+    BOARD*     board = loadBoard( wxS( "issue5830" ) );
+    FOOTPRINT* footprint = frontFootprint( board );
+    BOOST_REQUIRE( footprint );
+    const VECTOR2I position = footprint->GetPosition();
+
+    API_HANDLER_PCB handler( m_context );
+    kiapi::common::ApiRequest request = makeFlipRequest( board, { footprint->m_Uuid } );
+    API_RESULT      result = handler.Handle( request );
+
+    BOOST_REQUIRE_MESSAGE( result.has_value(),
+                           ( result.has_value() ? std::string() : result.error().error_message() ) );
+    BOOST_CHECK_EQUAL( footprint->GetLayer(), B_Cu );
+    BOOST_CHECK( footprint->IsFlipped() );
+    BOOST_CHECK_EQUAL( footprint->GetPosition(), position );
+}
+
+
+BOOST_AUTO_TEST_CASE( FlipItemsTwiceReturnsToFront )
+{
+    BOARD*     board = loadBoard( wxS( "issue5830" ) );
+    FOOTPRINT* footprint = frontFootprint( board );
+    BOOST_REQUIRE( footprint );
+    const VECTOR2I position = footprint->GetPosition();
+
+    API_HANDLER_PCB handler( m_context );
+    kiapi::common::ApiRequest request = makeFlipRequest( board, { footprint->m_Uuid } );
+    BOOST_REQUIRE( handler.Handle( request ).has_value() );
+    BOOST_REQUIRE( handler.Handle( request ).has_value() );
+
+    BOOST_CHECK_EQUAL( footprint->GetLayer(), F_Cu );
+    BOOST_CHECK( !footprint->IsFlipped() );
+    BOOST_CHECK_EQUAL( footprint->GetPosition(), position );
+}
+
+
+BOOST_AUTO_TEST_CASE( FlipItemsUnknownIdRejected )
+{
+    BOARD*     board = loadBoard( wxS( "issue5830" ) );
+    FOOTPRINT* footprint = frontFootprint( board );
+    BOOST_REQUIRE( footprint );
+
+    API_HANDLER_PCB handler( m_context );
+    kiapi::common::ApiRequest request = makeFlipRequest(
+            board, { footprint->m_Uuid, KIID( wxS( "deadbeef-0000-0000-0000-000000000000" ) ) } );
+    API_RESULT      result = handler.Handle( request );
+
+    BOOST_REQUIRE( !result.has_value() );
+    BOOST_CHECK_EQUAL( result.error().status(), kiapi::common::ApiStatusCode::AS_BAD_REQUEST );
+    // All or nothing: the valid footprint in the same request stays where it was
+    BOOST_CHECK_EQUAL( footprint->GetLayer(), F_Cu );
+}
+
+
+BOOST_AUTO_TEST_CASE( FlipItemsNonFootprintRejected )
+{
+    BOARD*     board = loadBoard( wxS( "issue5830" ) );
+    FOOTPRINT* footprint = frontFootprint( board );
+    BOOST_REQUIRE( footprint );
+    BOOST_REQUIRE( !board->Tracks().empty() );
+    PCB_TRACK*         track = board->Tracks().front();
+    const PCB_LAYER_ID trackLayer = track->GetLayer();
+
+    API_HANDLER_PCB handler( m_context );
+    kiapi::common::ApiRequest request = makeFlipRequest( board, { footprint->m_Uuid, track->m_Uuid } );
+    API_RESULT result = handler.Handle( request );
+
+    BOOST_REQUIRE( !result.has_value() );
+    BOOST_CHECK_EQUAL( result.error().status(), kiapi::common::ApiStatusCode::AS_BAD_REQUEST );
+    BOOST_CHECK_EQUAL( footprint->GetLayer(), F_Cu );
+    BOOST_CHECK_EQUAL( track->GetLayer(), trackLayer );
 }
 
 

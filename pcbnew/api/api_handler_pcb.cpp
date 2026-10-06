@@ -123,6 +123,7 @@ API_HANDLER_PCB::API_HANDLER_PCB( std::shared_ptr<PCB_CONTEXT> aContext, PCB_EDI
     registerHandler<GetNetClassForNets, NetClassForNetsResponse>(
             &API_HANDLER_PCB::handleGetNetClassForNets );
     registerHandler<RefillZones, Empty>( &API_HANDLER_PCB::handleRefillZones );
+    registerHandler<FlipItems, Empty>( &API_HANDLER_PCB::handleFlipItems );
     registerHandler<ImportNetlist, ImportNetlistResponse>( &API_HANDLER_PCB::handleImportNetlist );
 
     registerHandler<GetBoardEditorAppearanceSettings, BoardEditorAppearanceSettings>(
@@ -1611,6 +1612,63 @@ HANDLER_RESULT<Empty> API_HANDLER_PCB::handleRefillZones( const HANDLER_CONTEXT<
         // Push skipped connectivity, so run the same post-fill refresh as the interactive fill
         mgr->GetTool<ZONE_FILLER_TOOL>()->PostFillRefresh( frame() == nullptr );
     }
+
+    return Empty();
+}
+
+
+HANDLER_RESULT<Empty> API_HANDLER_PCB::handleFlipItems( const HANDLER_CONTEXT<FlipItems>& aCtx )
+{
+    if( std::optional<ApiResponseStatus> busy = checkForBusy() )
+        return tl::unexpected( *busy );
+
+    HANDLER_RESULT<bool> documentValidation = validateDocument( aCtx.Request.board() );
+
+    if( !documentValidation )
+        return tl::unexpected( documentValidation.error() );
+
+    std::vector<FOOTPRINT*> footprints;
+    std::string             rejected;
+
+    for( const types::KIID& id : aCtx.Request.items() )
+    {
+        std::optional<BOARD_ITEM*> item = getItemById( KIID( id.value() ) );
+
+        if( !item || ( *item )->Type() != PCB_FOOTPRINT_T )
+        {
+            rejected += ( rejected.empty() ? "" : ", " ) + id.value();
+            continue;
+        }
+
+        FOOTPRINT* footprint = static_cast<FOOTPRINT*>( *item );
+
+        // A repeated id would flip the same footprint back
+        if( !alg::contains( footprints, footprint ) )
+            footprints.push_back( footprint );
+    }
+
+    if( !rejected.empty() )
+    {
+        ApiResponseStatus e;
+        e.set_status( ApiStatusCode::AS_BAD_REQUEST );
+        e.set_error_message( fmt::format( "not footprints on this board: {}", rejected ) );
+        return tl::unexpected( e );
+    }
+
+    // Headless sessions have no editor settings; left/right is KiCad's default flip
+    const FLIP_DIRECTION direction = frame() ? frame()->GetPcbNewSettings()->m_FlipDirection
+                                             : FLIP_DIRECTION::LEFT_RIGHT;
+
+    COMMIT* commit = getCurrentCommit( aCtx.ClientName );
+
+    for( FOOTPRINT* footprint : footprints )
+    {
+        commit->Modify( footprint, nullptr, RECURSE_MODE::RECURSE );
+        footprint->Flip( footprint->GetPosition(), direction );
+    }
+
+    if( !m_activeClients.count( aCtx.ClientName ) )
+        pushCurrentCommit( aCtx.ClientName, _( "Flipped items via API" ) );
 
     return Empty();
 }
