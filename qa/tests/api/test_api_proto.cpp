@@ -32,6 +32,7 @@
 #include <pcb_barcode.h>
 #include <pcb_dimension.h>
 #include <pcb_reference_image.h>
+#include <pcb_shape.h>
 #include <pcb_track.h>
 #include <zone.h>
 
@@ -217,6 +218,117 @@ BOOST_FIXTURE_TEST_CASE( CopperThievingZoneRoundTrip, PROTO_TEST_FIXTURE )
     BOOST_CHECK_EQUAL( loaded.line_width, thieving.line_width );
     BOOST_CHECK_EQUAL( loaded.stagger, true );
     BOOST_CHECK( loaded.orientation == EDA_ANGLE( 15.0, DEGREES_T ) );
+}
+
+
+/**
+ * An API client moves a footprint by sending it back with a new position and every child
+ * shifted by the same offset in board coordinates, because FOOTPRINT::Deserialize re-creates
+ * the children from the message.  Footprint children keep their geometry in the library
+ * frame, so a zone or an arc that is not packed and unpacked in board coordinates comes back
+ * detached from the footprint (zone) or collapsed to the library origin (arc).
+ */
+BOOST_FIXTURE_TEST_CASE( FootprintMovedThroughApiKeepsZonesAndArcs, PROTO_TEST_FIXTURE )
+{
+    auto mm = []( double aX, double aY )
+    {
+        return VECTOR2I( pcbIUScale.mmToIU( aX ), pcbIUScale.mmToIU( aY ) );
+    };
+
+    m_board = std::make_unique<BOARD>();
+
+    FOOTPRINT* footprint = new FOOTPRINT( m_board.get() );
+    m_board->Add( footprint );
+
+    // Built at the identity transform, so these are library coordinates.
+    ZONE* zone = new ZONE( footprint );
+    zone->SetIsRuleArea( true );
+    zone->SetLayer( F_Cu );
+    zone->AppendCorner( mm( -1, -1 ), -1 );
+    zone->AppendCorner( mm( 2, -1 ), -1 );
+    zone->AppendCorner( mm( 2, 3 ), -1 );
+    zone->AppendCorner( mm( -1, 3 ), -1 );
+    footprint->Add( zone );
+
+    PCB_SHAPE* arc = new PCB_SHAPE( footprint, SHAPE_T::ARC );
+    arc->SetLayer( F_SilkS );
+    arc->SetArcGeometry( mm( -3, 0 ), mm( -2.12132, -2.12132 ), mm( 0, -3 ) );
+    footprint->Add( arc );
+
+    footprint->SetPosition( mm( 10, 20 ) );
+    footprint->SetOrientation( ANGLE_90 );
+
+    const SHAPE_POLY_SET libOutline = *zone->Outline();
+    const VECTOR2I       libStart = arc->GetLibraryStart();
+    const VECTOR2I       libMid = arc->GetLibraryArcMid();
+    const VECTOR2I       libEnd = arc->GetLibraryEnd();
+
+    google::protobuf::Any any;
+    footprint->Serialize( any );
+
+    kiapi::board::types::FootprintInstance msg;
+    BOOST_REQUIRE( any.UnpackTo( &msg ) );
+
+    const VECTOR2I offset = mm( -6, 17 );
+
+    auto shift = [&]( kiapi::common::types::Vector2* aPoint )
+    {
+        aPoint->set_x_nm( aPoint->x_nm() + offset.x );
+        aPoint->set_y_nm( aPoint->y_nm() + offset.y );
+    };
+
+    shift( msg.mutable_position() );
+
+    for( google::protobuf::Any& item : *msg.mutable_definition()->mutable_items() )
+    {
+        kiapi::board::types::Zone              zoneMsg;
+        kiapi::board::types::BoardGraphicShape shapeMsg;
+
+        if( item.UnpackTo( &zoneMsg ) )
+        {
+            for( auto& polygon : *zoneMsg.mutable_outline()->mutable_polygons() )
+            {
+                for( auto& node : *polygon.mutable_outline()->mutable_nodes() )
+                    shift( node.mutable_point() );
+            }
+
+            item.PackFrom( zoneMsg );
+        }
+        else if( item.UnpackTo( &shapeMsg ) && shapeMsg.shape().has_arc() )
+        {
+            auto* arcMsg = shapeMsg.mutable_shape()->mutable_arc();
+            shift( arcMsg->mutable_start() );
+            shift( arcMsg->mutable_mid() );
+            shift( arcMsg->mutable_end() );
+            item.PackFrom( shapeMsg );
+        }
+    }
+
+    any.PackFrom( msg );
+
+    FOOTPRINT moved( m_board.get() );
+    BOOST_REQUIRE( moved.Deserialize( any ) );
+    BOOST_CHECK_EQUAL( moved.GetPosition(), mm( 10, 20 ) + offset );
+
+    BOOST_REQUIRE_EQUAL( moved.Zones().size(), 1 );
+    const SHAPE_POLY_SET* movedOutline = moved.Zones().front()->Outline();
+    BOOST_REQUIRE_EQUAL( movedOutline->TotalVertices(), libOutline.TotalVertices() );
+
+    for( int i = 0; i < libOutline.TotalVertices(); ++i )
+        BOOST_CHECK_EQUAL( movedOutline->CVertex( i ), libOutline.CVertex( i ) );
+
+    const PCB_SHAPE* movedArc = nullptr;
+
+    for( BOARD_ITEM* item : moved.GraphicalItems() )
+    {
+        if( item->Type() == PCB_SHAPE_T && static_cast<PCB_SHAPE*>( item )->GetShape() == SHAPE_T::ARC )
+            movedArc = static_cast<PCB_SHAPE*>( item );
+    }
+
+    BOOST_REQUIRE( movedArc );
+    BOOST_CHECK_EQUAL( movedArc->GetLibraryStart(), libStart );
+    BOOST_CHECK_LE( ( movedArc->GetLibraryArcMid() - libMid ).EuclideanNorm(), 2 );
+    BOOST_CHECK_EQUAL( movedArc->GetLibraryEnd(), libEnd );
 }
 
 

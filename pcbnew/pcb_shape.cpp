@@ -270,6 +270,10 @@ bool PCB_SHAPE::Deserialize( const google::protobuf::Any &aContainer )
     any.PackFrom( msg.shape() );
     EDA_SHAPE::Deserialize( any );
 
+    // EDA_SHAPE::Deserialize sets arcs through the non-virtual EDA_SHAPE::SetArcGeometry,
+    // which never reaches the lib-frame copy that the file and the footprint transform use.
+    syncLibCoords();
+
     // TODO m_hasSolderMask and m_solderMaskMargin
 
     return true;
