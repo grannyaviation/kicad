@@ -387,9 +387,61 @@ void ALIGNMENT_GUIDE_ENGINE::buildGraphics( const BOX2I& aSnapped, int aAxis,
         break;
     }
 
+    case KIND_PIN_LINE:
+    {
+        // On the shared ordinate, from the pad the guide aligns to, to the point that now sits on
+        // its line -- in post-snap coordinates, so the segment is exactly axis-parallel.
+        const VECTOR2I target = m_pinTargets[aWinner.N1];
+        const VECTOR2I source = sourcePoint( aSnapped, aWinner.N2 );
+
+        if( aAxis == 0 )
+            aResult.Lines.emplace_back( VECTOR2I( aWinner.Ord, target.y ), VECTOR2I( aWinner.Ord, source.y ) );
+        else
+            aResult.Lines.emplace_back( VECTOR2I( target.x, aWinner.Ord ), VECTOR2I( source.x, aWinner.Ord ) );
+
+        break;
+    }
+
     default:
         break;
     }
+}
+
+
+VECTOR2I ALIGNMENT_GUIDE_ENGINE::sourcePoint( const BOX2I& aBox, size_t aIndex ) const
+{
+    if( aIndex == 0 )
+        return aBox.Centre();
+
+    return aBox.GetOrigin() + m_movingPoints[aIndex - 1];
+}
+
+
+std::optional<ALIGNMENT_GUIDE_ENGINE::SNAP_CANDIDATE>
+ALIGNMENT_GUIDE_ENGINE::bestPinLine( const BOX2I& aMoving, int aAxis, int aSnapRange ) const
+{
+    std::optional<SNAP_CANDIDATE> best;
+
+    for( size_t t = 0; t < m_pinTargets.size(); ++t )
+    {
+        const int targetOrd = ( aAxis == 0 ) ? m_pinTargets[t].x : m_pinTargets[t].y;
+
+        for( size_t s = 0; s <= m_movingPoints.size(); ++s )
+        {
+            const VECTOR2I src = sourcePoint( aMoving, s );
+            const int      delta = targetOrd - ( ( aAxis == 0 ) ? src.x : src.y );
+
+            if( std::abs( delta ) > aSnapRange )
+                continue;
+
+            // Strict <: the first target, then the first source, keeps a tie -- the box
+            // centre before the pads, so a symmetric part lands on its centre.
+            if( !best || std::abs( delta ) < best->Dist )
+                best = SNAP_CANDIDATE{ delta, std::abs( delta ), KIND_PIN_LINE, t, s, targetOrd, false };
+        }
+    }
+
+    return best;
 }
 
 
@@ -405,6 +457,20 @@ ALIGNMENT_GUIDE_ENGINE::FindSnap( const BOX2I& aMoving, int aSnapRange,
 
     for( int axis = 0; axis < 2; ++axis )
     {
+        // A pad's centre line wins its axis outright and is exempt from the grid: it is an exact
+        // electrical alignment, the way an anchor snap is.  clusters[axis] stays empty; the
+        // KIND_PIN_LINE graphics never read it.
+        if( std::optional<SNAP_CANDIDATE> pin = bestPinLine( aMoving, axis, aSnapRange ) )
+        {
+            if( axis == 0 )
+                result.Offset.x = pin->Delta;
+            else
+                result.Offset.y = pin->Delta;
+
+            winners[axis] = pin;
+            continue;
+        }
+
         clusters[axis] = buildClusters( aMoving, axis );
 
         std::vector<SNAP_CANDIDATE> candidates;

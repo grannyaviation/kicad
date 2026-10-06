@@ -918,4 +918,120 @@ BOOST_AUTO_TEST_CASE( ARoundedCandidateThatMovesNothingIsNotASnap )
 }
 
 
+// --- Pin-line guides (PixelCad 2026-10-06) -------------------------------------------------
+
+BOOST_AUTO_TEST_CASE( PinLineSnapsBoxCentreOnX )
+{
+    ALIGNMENT_GUIDE_ENGINE engine;
+    engine.SetPinTargets( { VECTOR2I( 100, 1000 ) } );
+
+    // Box origin x 76, width 40: centre x = 96, 4 left of the target.
+    BOX2I moving( VECTOR2I( 76, 0 ), VECTOR2I( 40, 20 ) );
+    auto  result = engine.FindSnap( moving, 10 );
+
+    BOOST_REQUIRE( result.has_value() );
+    BOOST_CHECK_EQUAL( result->Offset.x, 4 );   // centre 96 -> 100
+    BOOST_CHECK_EQUAL( result->Offset.y, 0 );   // target y 1000 is far out of range
+}
+
+BOOST_AUTO_TEST_CASE( PinLineSnapsBoxCentreOnY )
+{
+    ALIGNMENT_GUIDE_ENGINE engine;
+    engine.SetPinTargets( { VECTOR2I( 1000, 50 ) } );
+
+    BOX2I moving( VECTOR2I( 0, 37 ), VECTOR2I( 40, 20 ) );   // centre y = 47
+    auto  result = engine.FindSnap( moving, 10 );
+
+    BOOST_REQUIRE( result.has_value() );
+    BOOST_CHECK_EQUAL( result->Offset.x, 0 );
+    BOOST_CHECK_EQUAL( result->Offset.y, 3 );
+}
+
+BOOST_AUTO_TEST_CASE( PinLineSnapsMovingPadOntoTarget )
+{
+    ALIGNMENT_GUIDE_ENGINE engine;
+    engine.SetPinTargets( { VECTOR2I( 200, 1000 ) } );
+    // A horizontal 2-pad part: pads 5 from each end of a 40-wide box.
+    engine.SetMovingPoints( { VECTOR2I( 5, 10 ), VECTOR2I( 35, 10 ) } );
+
+    // Origin x 192: pad 1 at 197, centre at 212, pad 2 at 227.  Pad 1 is 3 from the target.
+    BOX2I moving( VECTOR2I( 192, 0 ), VECTOR2I( 40, 20 ) );
+    auto  result = engine.FindSnap( moving, 10 );
+
+    BOOST_REQUIRE( result.has_value() );
+    BOOST_CHECK_EQUAL( result->Offset.x, 3 );
+}
+
+BOOST_AUTO_TEST_CASE( PinLineBeatsNearerEdgeAlignment )
+{
+    ALIGNMENT_GUIDE_ENGINE engine;
+    // Neighbour left edge at x = 0; the moving box's left edge is 1 away from it.
+    engine.SetNeighbors( { BOX2I( VECTOR2I( 0, 500 ), VECTOR2I( 100, 50 ) ) } );
+    // Pin target 6 away from the moving box centre: farther, but a pin line wins its axis.
+    engine.SetPinTargets( { VECTOR2I( 27, 1000 ) } );
+
+    BOX2I moving( VECTOR2I( 1, 0 ), VECTOR2I( 40, 20 ) );    // left 1, centre 21
+    auto  result = engine.FindSnap( moving, 10 );
+
+    BOOST_REQUIRE( result.has_value() );
+    BOOST_CHECK_EQUAL( result->Offset.x, 6 );
+}
+
+BOOST_AUTO_TEST_CASE( PinLineIgnoresGridStepEdgeDoesNot )
+{
+    ALIGNMENT_GUIDE_ENGINE engine;
+    engine.SetPinTargets( { VECTOR2I( 103, 1000 ) } );
+
+    BOX2I moving( VECTOR2I( 80, 0 ), VECTOR2I( 40, 20 ) );   // centre 100
+    auto  pinned = engine.FindSnap( moving, 10, VECTOR2I( 10, 10 ) );
+
+    BOOST_REQUIRE( pinned.has_value() );
+    BOOST_CHECK_EQUAL( pinned->Offset.x, 3 );   // not a multiple of 10, still taken
+
+    // Same off-grid distance as an edge alignment: rejected under the same step.
+    ALIGNMENT_GUIDE_ENGINE edges;
+    edges.SetNeighbors( { BOX2I( VECTOR2I( 83, 500 ), VECTOR2I( 100, 50 ) ) } );
+    BOOST_CHECK( !edges.FindSnap( moving, 10, VECTOR2I( 10, 10 ) ).has_value() );
+}
+
+BOOST_AUTO_TEST_CASE( PinLineOutOfRangeNoSnap )
+{
+    ALIGNMENT_GUIDE_ENGINE engine;
+    engine.SetPinTargets( { VECTOR2I( 500, 500 ) } );
+
+    BOX2I moving( VECTOR2I( 0, 0 ), VECTOR2I( 40, 20 ) );
+    BOOST_CHECK( !engine.FindSnap( moving, 10 ).has_value() );
+}
+
+BOOST_AUTO_TEST_CASE( PinLineGuideRunsFromTargetToSource )
+{
+    ALIGNMENT_GUIDE_ENGINE engine;
+    engine.SetPinTargets( { VECTOR2I( 100, 1000 ) } );
+
+    BOX2I moving( VECTOR2I( 76, 0 ), VECTOR2I( 40, 20 ) );   // centre (96, 10)
+    auto  result = engine.FindSnap( moving, 10 );
+
+    BOOST_REQUIRE( result.has_value() );
+    BOOST_REQUIRE_EQUAL( result->Lines.size(), 1 );
+    BOOST_CHECK( result->Badges.empty() );
+
+    const SEG& s = result->Lines[0];
+    BOOST_CHECK_EQUAL( s.A, VECTOR2I( 100, 1000 ) );   // target
+    BOOST_CHECK_EQUAL( s.B, VECTOR2I( 100, 10 ) );     // snapped box centre
+}
+
+BOOST_AUTO_TEST_CASE( PinLineClearEmptiesPinInputs )
+{
+    ALIGNMENT_GUIDE_ENGINE engine;
+    engine.SetPinTargets( { VECTOR2I( 100, 1000 ) } );
+    engine.SetMovingPoints( { VECTOR2I( 5, 5 ) } );
+    BOOST_CHECK( engine.HasInputs() );
+
+    engine.Clear();
+    BOOST_CHECK( !engine.HasInputs() );
+
+    BOX2I moving( VECTOR2I( 76, 0 ), VECTOR2I( 40, 20 ) );
+    BOOST_CHECK( !engine.FindSnap( moving, 10 ).has_value() );
+}
+
 BOOST_AUTO_TEST_SUITE_END()

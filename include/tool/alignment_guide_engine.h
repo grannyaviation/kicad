@@ -58,13 +58,25 @@ public:
     void SetNeighbors( std::vector<BOX2I> aBoxes ) { m_neighbors = std::move( aBoxes ); }
     void SetContainers( std::vector<BOX2I> aBoxes ) { m_containers = std::move( aBoxes ); }
 
+    /// Pad centres the moving selection may line up with (pin-line guides), in world coordinates.
+    void SetPinTargets( std::vector<VECTOR2I> aPoints ) { m_pinTargets = std::move( aPoints ); }
+
+    /// The moving selection's own pad centres, relative to the moving box's GetOrigin(), so they
+    /// travel with whatever box FindSnap() is handed.  The box centre is always a source too.
+    void SetMovingPoints( std::vector<VECTOR2I> aPoints ) { m_movingPoints = std::move( aPoints ); }
+
     void Clear()
     {
         m_neighbors.clear();
         m_containers.clear();
+        m_pinTargets.clear();
+        m_movingPoints.clear();
     }
 
-    bool HasInputs() const { return !m_neighbors.empty() || !m_containers.empty(); }
+    bool HasInputs() const
+    {
+        return !m_neighbors.empty() || !m_containers.empty() || !m_pinTargets.empty();
+    }
 
     /**
      * Compute the best snap for aMoving.
@@ -96,6 +108,9 @@ public:
      *                     on grid.  The engine is handed the *unsnapped* box and cannot
      *                     check this; KiCad's move tools satisfy it by feeding a
      *                     grid-snapped cursor.
+     *
+     * Pin-line candidates (SetPinTargets) are decided first on each axis: if any is in range the nearest wins outright, and the grid step does not apply to them -- a pad's centre is an exact electrical alignment, like an anchor snap.
+     *
      * @return snap offset + guide graphics, or std::nullopt if nothing in range
      */
     std::optional<RESULT> FindSnap( const BOX2I& aMoving, int aSnapRange,
@@ -151,12 +166,14 @@ private:
     //                   the two indices between them, so N1/N2 is not left/right.
     //   KIND_BETWEEN    indices into the axis' CLUSTER list.  N1 = left, N2 = right,
     //                   never swapped.
+    //   KIND_PIN_LINE   N1 = index into m_pinTargets, N2 = source (0 = box centre, k = m_movingPoints[k-1])
     enum
     {
         KIND_ALIGN,     ///< Edge/center aligned with a neighbor edge/center
         KIND_EQUAL_GAP, ///< Extends an existing neighbor gap (a->b == b->moving)
         KIND_BETWEEN,   ///< Equal gap on both sides between two neighbors
         KIND_CONTAINER, ///< Centered inside a container box
+        KIND_PIN_LINE,  ///< A source (box centre or moving point) on a pin target's ordinate
     };
 
     /// Neighbors that cross-overlap aMoving, merged along aAxis, ordered ascending.
@@ -185,6 +202,15 @@ private:
     void buildAlignmentLines( const BOX2I& aSnapped, int aAxis, int aWinnerOrd,
                               RESULT& aResult ) const;
 
-    std::vector<BOX2I> m_neighbors;
-    std::vector<BOX2I> m_containers;
+    /// The nearest pin-line candidate in range on aAxis, or std::nullopt.
+    std::optional<SNAP_CANDIDATE> bestPinLine( const BOX2I& aMoving, int aAxis,
+                                               int aSnapRange ) const;
+
+    /// Source point N of aBox: 0 is the centre, k is m_movingPoints[k-1].
+    VECTOR2I sourcePoint( const BOX2I& aBox, size_t aIndex ) const;
+
+    std::vector<BOX2I>     m_neighbors;
+    std::vector<BOX2I>     m_containers;
+    std::vector<VECTOR2I>  m_pinTargets;
+    std::vector<VECTOR2I>  m_movingPoints;
 };
