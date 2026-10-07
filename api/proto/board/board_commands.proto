@@ -326,6 +326,25 @@ message FlipItems
   repeated kiapi.common.types.KIID items = 2;
 }
 
+// Writes the board as a Specctra DSN routing job, as File > Export > Specctra DSN does.
+// `path` is an absolute file name; an existing file is replaced.  Returns Empty.
+message ExportSpecctraDsn
+{
+  kiapi.common.types.DocumentSpecifier board = 1;
+
+  string path = 2;
+}
+
+// Reads a Specctra SES routing result into the board, as File > Import > Specctra Session does: unlocked
+// tracks and vias are replaced by the session's wires and vias, in one commit.  `path` is an absolute file
+// name.  Returns Empty.
+message ImportSpecctraSession
+{
+  kiapi.common.types.DocumentSpecifier board = 1;
+
+  string path = 2;
+}
+
 /*
  * Utilities
  */

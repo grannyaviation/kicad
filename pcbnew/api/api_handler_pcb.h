@@ -97,6 +97,9 @@ private:
 
     HANDLER_RESULT<Empty> handleRefillZones( const HANDLER_CONTEXT<RefillZones>& aCtx );
     HANDLER_RESULT<Empty> handleFlipItems( const HANDLER_CONTEXT<FlipItems>& aCtx );
+    HANDLER_RESULT<Empty> handleExportSpecctraDsn( const HANDLER_CONTEXT<ExportSpecctraDsn>& aCtx );
+    HANDLER_RESULT<Empty> handleImportSpecctraSession(
+            const HANDLER_CONTEXT<ImportSpecctraSession>& aCtx );
 
     HANDLER_RESULT<ImportNetlistResponse> handleImportNetlist(
             const HANDLER_CONTEXT<ImportNetlist>& aCtx );

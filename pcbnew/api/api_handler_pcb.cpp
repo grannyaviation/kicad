@@ -47,6 +47,9 @@
 #include <pcbnew_id.h>
 #include <pcb_marker.h>
 #include <kiway.h>
+#include <locale_io.h>
+#include <specctra.h>
+#include <wx/filefn.h>
 #include <drc/drc_item.h>
 #include <jobs/job_export_pcb_3d.h>
 #include <jobs/job_export_pcb_dxf.h>
@@ -124,6 +127,8 @@ API_HANDLER_PCB::API_HANDLER_PCB( std::shared_ptr<PCB_CONTEXT> aContext, PCB_EDI
             &API_HANDLER_PCB::handleGetNetClassForNets );
     registerHandler<RefillZones, Empty>( &API_HANDLER_PCB::handleRefillZones );
     registerHandler<FlipItems, Empty>( &API_HANDLER_PCB::handleFlipItems );
+    registerHandler<ExportSpecctraDsn, Empty>( &API_HANDLER_PCB::handleExportSpecctraDsn );
+    registerHandler<ImportSpecctraSession, Empty>( &API_HANDLER_PCB::handleImportSpecctraSession );
     registerHandler<ImportNetlist, ImportNetlistResponse>( &API_HANDLER_PCB::handleImportNetlist );
 
     registerHandler<GetBoardEditorAppearanceSettings, BoardEditorAppearanceSettings>(
@@ -1669,6 +1674,82 @@ HANDLER_RESULT<Empty> API_HANDLER_PCB::handleFlipItems( const HANDLER_CONTEXT<Fl
 
     if( !m_activeClients.count( aCtx.ClientName ) )
         pushCurrentCommit( aCtx.ClientName, _( "Flipped items via API" ) );
+
+    return Empty();
+}
+
+
+static ApiResponseStatus specctraBadRequest( const std::string& aMessage )
+{
+    ApiResponseStatus e;
+    e.set_status( ApiStatusCode::AS_BAD_REQUEST );
+    e.set_error_message( aMessage );
+    return e;
+}
+
+
+HANDLER_RESULT<Empty> API_HANDLER_PCB::handleExportSpecctraDsn(
+        const HANDLER_CONTEXT<ExportSpecctraDsn>& aCtx )
+{
+    if( std::optional<ApiResponseStatus> busy = checkForBusy() )
+        return tl::unexpected( *busy );
+
+    HANDLER_RESULT<bool> documentValidation = validateDocument( aCtx.Request.board() );
+
+    if( !documentValidation )
+        return tl::unexpected( documentValidation.error() );
+
+    wxString path = wxString::FromUTF8( aCtx.Request.path() );
+
+    if( path.IsEmpty() || !wxFileName( path ).IsAbsolute() )
+        return tl::unexpected( specctraBadRequest( "path must be an absolute file name" ) );
+
+    try
+    {
+        DSN::ExportBoardToSpecctraFile( board(), path );
+    }
+    catch( const IO_ERROR& ioe )
+    {
+        return tl::unexpected( specctraBadRequest( ioe.What().ToStdString() ) );
+    }
+
+    return Empty();
+}
+
+
+HANDLER_RESULT<Empty> API_HANDLER_PCB::handleImportSpecctraSession(
+        const HANDLER_CONTEXT<ImportSpecctraSession>& aCtx )
+{
+    if( std::optional<ApiResponseStatus> busy = checkForBusy() )
+        return tl::unexpected( *busy );
+
+    HANDLER_RESULT<bool> documentValidation = validateDocument( aCtx.Request.board() );
+
+    if( !documentValidation )
+        return tl::unexpected( documentValidation.error() );
+
+    wxString path = wxString::FromUTF8( aCtx.Request.path() );
+
+    if( !wxFileName( path ).IsAbsolute() || !wxFileExists( path ) )
+        return tl::unexpected(
+                specctraBadRequest( fmt::format( "no session file at '{}'", aCtx.Request.path() ) ) );
+
+    DSN::SPECCTRA_DB db;
+    LOCALE_IO        toggle;
+
+    try
+    {
+        // Parse before staging anything; FromSESSION checks its sections before it removes a track
+        db.LoadSESSION( path );
+        db.FromSESSION( board(), *getCurrentCommit( aCtx.ClientName ) );
+    }
+    catch( const IO_ERROR& ioe )
+    {
+        return tl::unexpected( specctraBadRequest( ioe.What().ToStdString() ) );
+    }
+
+    if( !m_activeClients.count( aCtx.ClientName ) )
+        pushCurrentCommit( aCtx.ClientName, _( "Imported Specctra session via API" ) );
 
     return Empty();
 }

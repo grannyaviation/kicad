@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include <fstream>
 #include <memory>
 #include <vector>
 
@@ -36,6 +37,7 @@
 #include <board.h>
 #include <connectivity/connectivity_data.h>
 #include <footprint.h>
+#include <netinfo.h>
 #include <pcb_track.h>
 #include <settings/settings_manager.h>
 #include <zone.h>
@@ -95,6 +97,22 @@ struct API_HANDLER_PCB_FIXTURE
 
         for( const KIID& id : aIds )
             command.add_items()->set_value( id.AsStdString() );
+
+        kiapi::common::ApiRequest request;
+        request.mutable_header()->set_client_name( "kicad.qa" );
+        BOOST_REQUIRE( request.mutable_message()->PackFrom( command ) );
+
+        return request;
+    }
+
+    template <typename COMMAND>
+    kiapi::common::ApiRequest makePathRequest( BOARD* aBoard, const wxString& aPath ) const
+    {
+        COMMAND command;
+        command.mutable_board()->set_type( kiapi::common::types::DocumentType::DOCTYPE_PCB );
+        command.mutable_board()->set_board_filename(
+                wxFileName( aBoard->GetFileName() ).GetFullName().ToStdString() );
+        command.set_path( aPath.ToStdString() );
 
         kiapi::common::ApiRequest request;
         request.mutable_header()->set_client_name( "kicad.qa" );
@@ -319,6 +337,124 @@ BOOST_AUTO_TEST_CASE( FlipItemsNonFootprintRejected )
     BOOST_CHECK_EQUAL( result.error().status(), kiapi::common::ApiStatusCode::AS_BAD_REQUEST );
     BOOST_CHECK_EQUAL( footprint->GetLayer(), F_Cu );
     BOOST_CHECK_EQUAL( track->GetLayer(), trackLayer );
+}
+
+
+BOOST_AUTO_TEST_CASE( ExportSpecctraDsnWritesTheBoard )
+{
+    BOARD*   board = loadBoard( wxS( "issue5830" ) );
+    wxString path = wxFileName::CreateTempFileName( wxS( "kicad_qa_dsn" ) );
+
+    API_HANDLER_PCB handler( m_context );
+    kiapi::common::ApiRequest request = makePathRequest<kiapi::board::commands::ExportSpecctraDsn>( board, path );
+    API_RESULT      result = handler.Handle( request );
+
+    BOOST_REQUIRE_MESSAGE( result.has_value(),
+                           ( result.has_value() ? std::string() : result.error().error_message() ) );
+    std::ifstream in( path.ToStdString() );
+    std::string   text( ( std::istreambuf_iterator<char>( in ) ), std::istreambuf_iterator<char>() );
+    wxRemoveFile( path );
+    BOOST_CHECK( text.find( "(pcb " ) != std::string::npos );
+    BOOST_CHECK( text.find( "(network" ) != std::string::npos );
+}
+
+
+BOOST_AUTO_TEST_CASE( ExportSpecctraDsnRelativePathRejected )
+{
+    BOARD* board = loadBoard( wxS( "issue5830" ) );
+
+    API_HANDLER_PCB handler( m_context );
+    kiapi::common::ApiRequest request = makePathRequest<kiapi::board::commands::ExportSpecctraDsn>( board, wxS( "relative.dsn" ) );
+    API_RESULT      result = handler.Handle( request );
+
+    BOOST_REQUIRE( !result.has_value() );
+    BOOST_CHECK_EQUAL( result.error().status(), kiapi::common::ApiStatusCode::AS_BAD_REQUEST );
+}
+
+
+BOOST_AUTO_TEST_CASE( ImportSpecctraSessionReplacesUnlockedTracks )
+{
+    BOARD* board = loadBoard( wxS( "issue5830" ) );
+    BOOST_REQUIRE( !board->Tracks().empty() );
+
+    NETINFO_ITEM* net = nullptr;
+
+    for( NETINFO_ITEM* candidate : board->GetNetInfo() )
+    {
+        if( candidate->GetNetCode() > 0 && !candidate->GetNetname().IsEmpty() )
+        {
+            net = candidate;
+            break;
+        }
+    }
+
+    BOOST_REQUIRE( net );
+
+    // One 0.25 mm wide, 1 mm long wire at the origin (resolution um 10: one unit is 0.1 µm)
+    wxString path = wxFileName::CreateTempFileName( wxS( "kicad_qa_ses" ) );
+    {
+        std::ofstream out( path.ToStdString() );
+        out << "(session qa.ses\n"
+               "  (base_design qa.dsn)\n"
+               "  (routes\n"
+               "    (resolution um 10)\n"
+               "    (parser (host_cad \"KiCad's Pcbnew\") (host_version qa))\n"
+               "    (library_out)\n"
+               "    (network_out\n"
+               "      (net \"" << net->GetNetname().ToStdString() << "\"\n"
+               "        (wire (path F.Cu 2500 0 0 10000 0))\n"
+               "      )\n"
+               "    )\n"
+               "  )\n"
+               ")\n";
+    }
+
+    API_HANDLER_PCB handler( m_context );
+    kiapi::common::ApiRequest request = makePathRequest<kiapi::board::commands::ImportSpecctraSession>( board, path );
+    API_RESULT      result = handler.Handle( request );
+    wxRemoveFile( path );
+
+    BOOST_REQUIRE_MESSAGE( result.has_value(),
+                           ( result.has_value() ? std::string() : result.error().error_message() ) );
+
+    int ours = 0;
+
+    for( PCB_TRACK* track : board->Tracks() )
+    {
+        if( track->GetNetname() == net->GetNetname() && track->GetWidth() == pcbIUScale.mmToIU( 0.25 )
+            && std::abs( track->GetEnd().x - track->GetStart().x ) == pcbIUScale.mmToIU( 1.0 ) )
+        {
+            ++ours;
+        }
+        else
+        {
+            // Everything else the session did not create must be a locked survivor
+            BOOST_CHECK( track->IsLocked() );
+        }
+    }
+
+    BOOST_CHECK_EQUAL( ours, 1 );
+}
+
+
+BOOST_AUTO_TEST_CASE( ImportSpecctraSessionWithoutRoutesRejected )
+{
+    BOARD*       board = loadBoard( wxS( "issue5830" ) );
+    const size_t tracks = board->Tracks().size();
+    wxString     path = wxFileName::CreateTempFileName( wxS( "kicad_qa_ses" ) );
+    {
+        std::ofstream out( path.ToStdString() );
+        out << "(session qa.ses (base_design qa.dsn))\n";
+    }
+
+    API_HANDLER_PCB handler( m_context );
+    kiapi::common::ApiRequest request = makePathRequest<kiapi::board::commands::ImportSpecctraSession>( board, path );
+    API_RESULT      result = handler.Handle( request );
+    wxRemoveFile( path );
+
+    BOOST_REQUIRE( !result.has_value() );
+    BOOST_CHECK_EQUAL( result.error().status(), kiapi::common::ApiStatusCode::AS_BAD_REQUEST );
+    BOOST_CHECK_EQUAL( board->Tracks().size(), tracks );
 }
 
 
