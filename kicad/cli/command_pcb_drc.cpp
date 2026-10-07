@@ -31,6 +31,7 @@
 
 #define ARG_FORMAT "--format"
 #define ARG_ALL_TRACK_ERRORS "--all-track-errors"
+#define ARG_NO_ERROR_LIMIT "--no-error-limit"
 #define ARG_UNITS "--units"
 #define ARG_SEVERITY_ALL "--severity-all"
 #define ARG_SEVERITY_ERROR "--severity-error"
@@ -56,6 +57,11 @@ CLI::PCB_DRC_COMMAND::PCB_DRC_COMMAND() : COMMAND( "drc" )
 
     m_argParser.add_argument( ARG_ALL_TRACK_ERRORS )
             .help( UTF8STDSTR( _( "Report all errors for each track" ) ) )
+            .flag();
+
+    m_argParser.add_argument( ARG_NO_ERROR_LIMIT )
+            .help( UTF8STDSTR( _( "Report every violation instead of stopping after 199 of a type "
+                                  "(499 for clearance and unconnected items)" ) ) )
             .flag();
 
     m_argParser.add_argument( ARG_PARITY )
@@ -109,6 +115,7 @@ int CLI::PCB_DRC_COMMAND::doPerform( KIWAY& aKiway )
     drcJob->m_filename = m_argInput;
     drcJob->SetVarOverrides( m_argDefineVars );
     drcJob->m_reportAllTrackErrors = m_argParser.get<bool>( ARG_ALL_TRACK_ERRORS );
+    drcJob->m_noErrorLimit = m_argParser.get<bool>( ARG_NO_ERROR_LIMIT );
     drcJob->m_exitCodeViolations = m_argParser.get<bool>( ARG_EXIT_CODE_VIOLATIONS );
 
     int severity = 0;

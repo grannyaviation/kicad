@@ -203,6 +203,9 @@ public:
 
     bool IsErrorLimitExceeded( int error_code );
 
+    /// Lift the per-type report limits of RunTests (kicad-cli pcb drc --no-error-limit).
+    void SetNoErrorLimit( bool aNoLimit ) { m_noErrorLimit = aNoLimit; }
+
     DRC_CONSTRAINT EvalRules( DRC_CONSTRAINT_T aConstraintType, const BOARD_ITEM* a,
                               const BOARD_ITEM* b, PCB_LAYER_ID aLayer,
                               REPORTER* aReporter = nullptr );
@@ -371,6 +374,7 @@ protected:
     mutable std::mutex         m_errorLimitsMutex;
     bool                       m_reportAllTrackErrors;
     bool                       m_testFootprints;
+    bool                       m_noErrorLimit = false;
 
     // constraint -> rule -> provider
     std::map<DRC_CONSTRAINT_T, std::vector<DRC_ENGINE_CONSTRAINT*>*> m_constraintMap;

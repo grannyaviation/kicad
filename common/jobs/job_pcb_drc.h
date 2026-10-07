@@ -30,6 +30,7 @@ public:
     wxString GetSettingsDialogTitle() const override;
 
     bool m_reportAllTrackErrors;
+    bool m_noErrorLimit;
     bool m_parity;
 
     bool m_refillZones;

@@ -20,6 +20,7 @@
  */
 
 #include <atomic>
+#include <limits>
 #include <set>
 #include <wx/log.h>
 #include <reporter.h>
@@ -920,6 +921,8 @@ void DRC_ENGINE::RunTests( EDA_UNITS aUnits, bool aReportAllTrackErrors, bool aT
     {
         if( m_designSettings->Ignore( ii ) )
             m_errorLimits[ ii ] = 0;
+        else if( m_noErrorLimit )
+            m_errorLimits[ ii ] = std::numeric_limits<int>::max();
         else if( ii == DRCE_CLEARANCE || ii == DRCE_UNCONNECTED_ITEMS )
             m_errorLimits[ ii ] = EXTENDED_ERROR_LIMIT;
         else

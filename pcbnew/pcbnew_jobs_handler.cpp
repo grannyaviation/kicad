@@ -2559,6 +2559,7 @@ int PCBNEW_JOBS_HANDLER::JobExportDrc( JOB* aJob )
 
     brd->RecordDRCExclusions();
     brd->DeleteMARKERs( true, true );
+    drcEngine->SetNoErrorLimit( drcJob->m_noErrorLimit );
     drcEngine->RunTests( units, drcJob->m_reportAllTrackErrors, checkParity );
     drcEngine->ClearViolationHandler();
 
